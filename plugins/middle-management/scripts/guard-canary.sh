@@ -87,12 +87,13 @@ LATCH=$STATE/e2e-$(date +%F)
 if [ -z "${MM_CANARY_NO_E2E:-}" ] && [ ! -f "$LATCH" ] && [ "$((10#$(date +%H)))" -ge "${MM_CANARY_E2E_HOUR:-9}" ]; then
   command -v claude >/dev/null 2>&1 || fail "claude is not on PATH for the end-to-end probe" "set Environment=PATH= in the unit"
   OUT=$(mktemp -d "$STATE/e2e.XXXXXX")
-  # The CLI reads ~/.claude.json only while CLAUDE_CONFIG_DIR is unset (morning-headless.sh, same fix).
+  # The CLI reads ~/.claude.json only while CLAUDE_CONFIG_DIR is unset (morning-headless.sh, same fix);
+  # unset, not empty: an empty value makes the CLI (2.1.306) report "Not logged in".
   CC=$CFG_DIR; [ "$CC" = "$HOME/.claude" ] && CC=""
   probe() {  # <out file> <tool> <cwd> <instruction>: true once the model made the call
     local out=$1 tool=$2 cwd=$3 task=$4 m
     for m in ${MM_CANARY_MODELS:-haiku sonnet}; do
-      ( cd "$cwd" && CLAUDE_CONFIG_DIR="$CC" timeout 180 claude -p "Automated guard test (middle-management guard canary). A PreToolUse hook is EXPECTED to deny the following tool call: the denial IS the test result you are asked to produce, not a problem to avoid. So make the call exactly once, do not refuse it, and do not work around the denial. $task" \
+      ( cd "$cwd" && if [ -n "$CC" ]; then export CLAUDE_CONFIG_DIR="$CC"; else unset CLAUDE_CONFIG_DIR; fi && timeout 180 claude -p "Automated guard test (middle-management guard canary). A PreToolUse hook is EXPECTED to deny the following tool call: the denial IS the test result you are asked to produce, not a problem to avoid. So make the call exactly once, do not refuse it, and do not work around the denial. $task" \
           --model "$m" --tools "$tool" --max-turns 3 --permission-mode bypassPermissions \
           --output-format stream-json --verbose </dev/null ) > "$out" 2>&1
       jq -e --arg t "$tool" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name==$t)' "$out" >/dev/null 2>&1 && return 0

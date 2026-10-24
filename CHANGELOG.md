@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.1 - 2026-10-24
+
+**Guard canary: the daily end-to-end probe works again.** The probe meant to run `claude -p` with
+`CLAUDE_CONFIG_DIR` unset when the config dir is the default `~/.claude`, but it set the variable
+to an empty string. Claude Code 2.1.306 treats an empty `CLAUDE_CONFIG_DIR` as a config dir of its
+own, finds no login there and answers "Not logged in", so the probe never reached the guard and the
+canary alarmed every hour (the day's latch is only written on success). The probe now exports the
+variable when it has a value and unsets it otherwise.
+
 ## 0.13.0 - 2026-10-22
 
 **The PR review runner left the plugin.** Reviewing and merging is up to each repository's
