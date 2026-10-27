@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.14.0 - 2026-10-27
+
+**Review lenses for the maintainer and the async paths.** The review loop's plan lenses grow from ten
+to twelve. Lens 11 (maintainer) asks of every new file, job, public method, export, published field
+and config key whether the change needs it and what the smaller version is, quotes standing maintainer
+rules, and from round 2 on asks what the last round of fixes added. Lens 12 (async paths) walks races
+on a shared key, replays, retries after a partial commit and per-call timeouts; each path gets a test
+before the PR or a written reason. The result lenses name both. Cause: a pull request whose own review
+had passed drew thirteen maintainer notes: four on correctness and races, three on retries and
+timeouts, two on an unrecorded API policy, two on pieces the change did not need, two on repo
+rules nobody had walked.
+
+**Non-leading reviewer briefs.** Step 3 now says the brief carries the acceptance criteria and the
+files, never the expected verdict, with a leading and an open example. The quoted reviewer rules add
+one sentence: a builder's deviation list is read only after the reviewer's own walk is in its report
+file. Step 4: every confirmed finding is fixed or decided by the user, none is left to the maintainer
+as "if you prefer".
+
+**Step 7: before the pull request.** A diff bound for a PR gets a fresh repo-rules walk: the diff and
+every `AGENTS.md` above a touched file, one row per applicable rule, zero `broken` before the PR. The
+PR body lists the rules walked and the new public surface, and `pr-gate.md` sits beside the body file.
+
+**Templates.** `templates/pr-gate.md`: the seven-box checklist with a `Branch:` line.
+`templates/docs/docs/handoffs/lane-brief.md`: a lane's kickoff brief (goal, acceptance criteria, repo
+rules, async tests, sequential capped checks, review, before the PR); the coordinator part of the
+`middle-management` skill and the handoffs README point to it.
+
+**PR gate (optional).** New hook `hooks/require-pr-gate.sh` and config key `prGate` (default `false`,
+validated by `config-check.sh`, setup step 12b). With it on, `gh pr create` in command position is
+denied until `pr-gate.md` in the folder of the `--body-file` names the head branch and has every box
+ticked; `-` or a `$VAR` body path is denied. The head branch comes from `--head`, else from a
+`cd <path>` earlier in the same command, else from the tool call's cwd; when none gives one, the
+denial says to pass `--head`. `MM_PR_GATE=off` overrides one PR on the user's word, as an assignment
+directly in front of that `gh pr create` or in the hook's environment; a quoted mention, such as a
+commit message or a title, is not matched. Without jq, awk or a valid config the hook stays out of
+the way. Known bypasses (`gh api`, a script, `bash -lc`, a `<<` inside a quoted string) are listed
+in its header. Tests: the "PR gate" block in `tests/run.sh`.
+
 ## 0.13.1 - 2026-10-24
 
 **Guard canary: the daily end-to-end probe works again.** The probe meant to run `claude -p` with

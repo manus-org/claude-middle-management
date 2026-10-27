@@ -1020,6 +1020,73 @@ assert_has "...older than an hour -> denied" '"deny"' "$(rlg Write "$HANDOFF")"
 printf '{oops' > "$H/.claude/middle-management.json"
 assert_empty "unusable config -> gate silent" "" "$(rlg Write "$HANDOFF")"
 
+say "== PR gate (optional hook) =="
+PRG="$P/hooks/require-pr-gate.sh"
+H="$(new_home)"
+LF="$H/lane"; mkdir -p "$LF/sub"; git -C "$LF" init -q -b lane/x
+prg() {  # $1 = command, [$2 = cwd, default the lane folder] -> the hook's stdout
+  jq -n --arg c "$1" --arg d "${2:-$LF}" '{session_id:"sess-pg",cwd:$d,tool_name:"Bash",tool_input:{command:$c}}' \
+    | HOME="$H" CLAUDE_CONFIG_DIR="" MM_PR_GATE="${PRG_ENV:-}" bash "$PRG" 2>&1
+}
+gate() {  # $1 = branch line, $2 = number of ticked boxes, $3 = number of open boxes -> $LF/pr-gate.md
+  { printf '# PR gate\n\n%s\n\n' "$1"; for _ in $(seq 1 "$2"); do echo '- [x] done'; done
+    for _ in $(seq 1 "$3"); do echo '- [ ] open'; done; } > "$LF/pr-gate.md"
+}
+OPENPR="gh pr create --title t --body-file $LF/pr-body.md"
+assert_has "the template carries seven open boxes" 7 "$(grep -c '^- \[ \]' "$P/templates/pr-gate.md")"
+printf '{"protectedCheckouts":[]}' > "$H/.claude/middle-management.json"
+assert_empty "config without the key -> gate silent" "" "$(prg "$OPENPR")"
+printf '{"prGate":true,"protectedCheckouts":[]}' > "$H/.claude/middle-management.json"
+assert_empty "not gh pr create -> silent" "" "$(prg 'gh pr view 12')"
+assert_has "no checklist -> denied" '"deny"' "$(prg "$OPENPR")"
+assert_has "the denial names the template, the override's condition and step 7" "your user's word" "$(prg "$OPENPR")"
+assert_has "...and the template path" "templates/pr-gate.md" "$(prg "$OPENPR")"
+assert_has "no --body-file -> denied" "without --body-file" "$(prg 'gh pr create --title t --body hi')"
+gate 'Branch: lane/x' 6 1
+assert_has "one open box -> denied" "6 of 7 boxes ticked and 1 open" "$(prg "$OPENPR")"
+gate 'Branch: lane/x' 6 0
+assert_has "unticked lines deleted -> still denied" "6 of 7" "$(prg "$OPENPR")"
+gate 'Branch: lane/other' 7 0
+assert_has "checklist of another branch -> denied" "names branch 'lane/other'" "$(prg "$OPENPR")"
+gate '' 7 0
+assert_has "no Branch: line -> denied" "names branch 'none'" "$(prg "$OPENPR")"
+gate 'Branch: `lane/x`' 7 0
+assert_empty "complete checklist, branch from git -> passes" "" "$(prg "$OPENPR")"
+assert_has "--head names another branch -> denied" '"deny"' "$(prg "$OPENPR --head lane/y")"
+gate 'Branch: lane/y' 7 0
+assert_empty "--head owner:branch matches -> passes" "" "$(prg "$OPENPR -H me:lane/y")"
+gate 'Branch: lane/x' 7 0
+assert_empty "--body-file=path -> passes" "" "$(prg "gh pr create --body-file=$LF/pr-body.md")"
+assert_empty "-F path -> passes" "" "$(prg "gh pr create -F $LF/pr-body.md")"
+assert_empty "~/ path -> passes" "" "$(prg 'gh pr create -F ~/lane/pr-body.md')"
+assert_empty "relative path against the cwd -> passes" "" "$(prg 'gh pr create -F ../pr-body.md' "$LF/sub")"
+assert_empty "quoted path, multi-line command -> passes" "" "$(prg "gh pr create \\
+  --title 'a b' --body-file \"$LF/pr-body.md\"")"
+assert_has "stdin body -> denied" "literal path" "$(prg 'gh pr create -F - <<EOF
+body
+EOF')"
+assert_has "\$VAR body path -> denied" "literal path" "$(prg 'gh pr create --body-file "$B"')"
+gate 'Branch: lane/x' 6 1
+assert_has "after && in command position -> denied" '"deny"' "$(prg "git push && gh pr create -F $LF/pr-body.md")"
+assert_has "multi-line command with an open box -> denied (the continuation is joined)" "6 of 7" "$(prg "gh pr create \\
+  --title 'a b' --body-file \"$LF/pr-body.md\"")"
+assert_has "timeout 60 in front -> denied" "6 of 7" "$(prg "timeout 60 gh pr create -F $LF/pr-body.md")"
+assert_has "MM_PR_GATE=off inside a --title -> denied" "6 of 7" "$(prg "gh pr create --title 'doc: MM_PR_GATE=off overrides' -F $LF/pr-body.md")"
+assert_has "MM_PR_GATE=off in a commit message before it -> denied" "6 of 7" "$(prg "git commit -m 'add MM_PR_GATE=off switch' && gh pr create -F $LF/pr-body.md")"
+assert_empty "a mention in echo -> silent" "" "$(prg 'echo "run gh pr create -F x.md next"')"
+assert_empty "a mention in a commit message -> silent" "" "$(prg 'git commit -m "gate on gh pr create; tests"')"
+assert_empty "MM_PR_GATE=off in the command -> passes" "" "$(prg "MM_PR_GATE=off gh pr create -F $LF/pr-body.md")"
+assert_empty "MM_PR_GATE=off in the environment -> passes" "" "$(PRG_ENV=off prg "$OPENPR")"
+assert_has "gh -R owner/repo pr create -> held too" "6 of 7" "$(prg "gh -R o/r pr create -F $LF/pr-body.md")"
+assert_has "gh --repo=o/r pr new (alias) -> held too" "6 of 7" "$(prg "gh --repo=o/r pr new -F $LF/pr-body.md")"
+gate 'Branch: lane/x' 7 0
+assert_empty "cd <worktree> && gh pr create from a non-git cwd -> passes" "" "$(prg "cd $LF && gh pr create --body-file $LF/pr-body.md" "$H")"
+assert_empty "...a relative body path resolves against the cd target" "" "$(prg "cd $LF && gh pr create -F pr-body.md" "$H")"
+assert_has "non-git cwd, no cd, no --head -> denied with pass --head" "pass --head <branch>" "$(prg "$OPENPR" "$H")"
+assert_empty "non-git cwd with --head -> passes" "" "$(prg "$OPENPR --head lane/x" "$H")"
+printf '{oops' > "$H/.claude/middle-management.json"
+assert_empty "unusable config -> gate silent" "" "$(prg "$OPENPR")"
+
 say "== lane reaper: decisions against a stub wt =="
 REAPER="$P/scripts/lane-reaper.sh"
 H="$(new_home)"

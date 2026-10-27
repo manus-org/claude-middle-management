@@ -22,6 +22,7 @@ Schema (setup adds no other key):
   "sessionLog": "/abs/path/to/logs/session-log.md",
   "longRunningAsUnit": false,
   "reviewLoopGate": false,
+  "prGate": false,
   "unitMemoryMax": "3G",
   "capMemoryMax": "5G",
   "maxUnits": 2,
@@ -206,6 +207,14 @@ repositories; the user names them.
     characters and a Write to any `<YYYY-MM-DD>_handoff-*.md` file are denied
     until the skill's marker is under an hour old, so a session drafts in its
     scratch dir, runs the loop, then writes the file.
+
+12b. **PR gate.** Ask whether `gh pr create` should be held until the lane's
+    checklist is complete (review-loop step 7). Yes means `prGate: true`; the
+    default is `false` and the hook then exits without doing anything. Explain what
+    it costs: a pull request opens only with `--body-file <path>`, and only once
+    `pr-gate.md` in that file's folder (a copy of `templates/pr-gate.md`) names the
+    head branch on its `Branch:` line and has every box ticked. The override for one
+    PR is `MM_PR_GATE=off` in front of the command, on the user's word.
 
 13. **Scopes (optional).** Ask whether a project on this machine needs its own,
     independent coordinator (own seat, own board); most machines need none. Per

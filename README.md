@@ -104,6 +104,7 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 | `wrap` skill | skill | The end-of-session routine: touched docs, the session-log entry with its `Session: closed · <id>` marker, open items, the closing lines. The tab list and the stale-seat takeover both read what it writes — see [The session log](#the-session-log). Addressed `/middle-management:wrap`; a personal `~/.claude/skills/wrap` wins the bare `/wrap`. |
 | `review-loop` skill | skill | The loop every deliverable goes through before it is handed on as finished: a fresh-context reviewer checks it against its acceptance criteria and must prove each finding against the code or doc, the session fixes what was confirmed, a new reviewer runs again, until a round finds nothing. Hard cap 4 rounds, then the open findings are reported and nothing is called clean. Opus at xhigh by default, Fable for money, security, data and the customer path. |
 | Review gate | PreToolUse hook (optional) | Holds ExitPlanMode on a real plan and a Write to any `<date>_handoff-*.md` until the review loop ran in this session within the hour. Off unless `reviewLoopGate: true`. |
+| PR gate | PreToolUse hook (optional) | Holds `gh pr create` until `pr-gate.md` beside the `--body-file` has every box ticked; `MM_PR_GATE=off` overrides. Off unless `prGate: true`. |
 | Open-items drop | script + banner line | Every session writes each "for later" item the moment it appears, with `scripts/open-items.py add`, to its own file under `<config-dir>/open-items/`; the coordinator's banner counts what is not on the board yet, `list` shows it, and `done` deletes a file only once every key is on the board and the session is gone. A to-do no longer dies with a session that never wrapped, or with a coordinator hand-over. |
 | `morning-ritual` skill | skill | The coordinator’s day-opener: messages delta, repo state, wrap audit, board sweep, machine cleanup, your user’s to-do list, day plan. The to-do list also runs alone ("todo list", "meine offenen To-Dos"): every open `owner: user` item from the board and the drops, grouped decide / click / run / read, only what was not delivered yet (`open-items.py todo`). Coordinator sessions only; carries CUSTOMIZE markers for your team’s stack. |
 | Headless morning ritual | systemd user timer (optional, Linux) | Weekdays 07:30: nothing moved since the last delivered ritual → one "no progress since <date>" line, no model run. Otherwise a 25-second login probe (429/401/no answer → a second credential from a file the unit names), the `morning-ritual` skill under `--max-budget-usd` and a hard timeout, and the day plan through your `notifyCommand`. A failure arrives as headline + cause + fix command, not journal lines. Installed by setup step 7; see [Headless morning ritual](#headless-morning-ritual). |
@@ -699,10 +700,12 @@ the files that hold them. No file = the skill's defaults.
 
 `plugins/middle-management/templates/docs/` holds the minimum a project needs before its first
 wrap: a `CLAUDE.md` and a `docs/` skeleton (`architecture.md`, `lessons.md`, README conventions
-for `runbooks/` and `handoffs/`). Copy what you want into a new repository and fill it in —
-nothing reads these as templates at runtime, they are a starting point, not a framework. The
-session log is the one file that is NOT per project: its skeleton sits beside them as
-`templates/session-log.md` and belongs at the machine-wide path above.
+for `runbooks/` and `handoffs/`, and `handoffs/lane-brief.md`, the brief the coordinator copies
+for each new lane). Copy what you want into a new repository and fill it in — they are a
+starting point, not a framework. Two files sit beside them in `templates/` because they are not
+per project: `session-log.md`, the skeleton for the machine-wide log above, and `pr-gate.md`,
+the checklist a lane copies beside its PR body (review-loop step 7) and the one template read at
+runtime: the optional PR gate hook counts its boxes.
 
 ## Contributing and releases
 
