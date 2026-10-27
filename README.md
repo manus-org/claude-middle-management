@@ -482,7 +482,8 @@ messaged: waking it would make it re-pay its whole context for a seat it is abou
    the wait cancels the run. Then it POSTs `{"from":"morning-t3","date":…}` to the T3 webhook task
    whose URL sits in `morningTaskUrlFile`; without `morningTakeover.allowed` it posts nothing and
    alarms instead (the thread could only be refused) (default `~/.config/t3-threads/morning-task-url`, mode 600,
-   never printed; the local twin of a relay URL first, at `t3Url`). HTTP 202 = started. Anything
+   never printed; the local twin of a relay URL first, at `t3Url`). HTTP 202 = the thread was
+   created, not that it got going (see the workspace note below). Anything
    else → exit 1 with a cause file (the relay is tried after the local twin only when the twin
    could not be reached or answered 404/405: any other answer may already have started the thread) → `OnFailure=unit-failure-alarm@%n.service`. State:
    `<seat dir>/morning-t3/status` (`<date> <posted|waiting|cancelled|failed> <epoch> <pid>`).
@@ -492,6 +493,19 @@ messaged: waking it would make it re-pay its whole context for a seat it is abou
    placeholders, so the URL starts nothing but that prompt), and `maxDeliveryAgeMinutes` (e.g.
    `120`) so a request the relay held overnight does not start a thread at noon. Model and runtime
    are inherited from the creating thread: `update_scheduled_task` changes them.
+
+   **Workspace: set it to the project checkout by hand.** T3 0.1.0 stores every unbound task created
+   over MCP with the workspace `{"type":"worktree","baseRef":"main","startFromOrigin":true}`, and MCP
+   has no field to change it. On a project folder that is not a git repo (or has no `origin/main`)
+   every run then fails in workspace preparation ("provision worktree … Failed to resolve the VCS
+   driver") before the agent starts, while the webhook still answers 202 and the task still shows
+   `last_run_status` "succeeded". Fix once in the T3 web UI: Settings > Scheduled tasks > edit the
+   task > Workspace "Use the project checkout" (`{"type":"root"}`) > save. Saving keeps the webhook
+   token; never click rotate (the stored URL would go stale). Any later `update_scheduled_task` call
+   that passes `bindToCurrentThread` resets the workspace to worktree: check it again after one.
+   Test: run `morning-t3.sh` by hand with `MM_MORNING_WAIT_UNTIL` set late while a live coordinator
+   holds the seat; it passes when the new thread shows "Workspace ready", `claim --morning` prints
+   `BUSY` or `REFUSED`, and the status file turns `refused`.
 3. **Morning takeover** (`orchestrator.sh claim --thread <id> --morning`). Allowed by the config
    key `morningTakeover: {"allowed": true, "okBy": "<who, date>"}`: the user's standing word,
    recorded once, so nobody is asked at runtime. Without it `--morning` is refused outright. It takes
@@ -525,7 +539,8 @@ its seat is the one served (required with `scopeMode: "per-root"`). Holidays are
 
 **Assumptions, not verified end to end on a live T3 server:** that the local twin of the webhook
 relay URL starts the task as the relay does (proven for the report task by `t3-wake.sh`), and that
-a request answered with 202 has created the thread. The `schedule_task` tool description states
+a request answered with 202 has created the thread (created, not prepared: a workspace failure
+comes after the 202, see step 2). The `schedule_task` tool description states
 the rest: `{"type": "webhook"}` runs once per request, `bindToCurrentThread: false` creates a fresh
 top-level thread per run, and the run sees the request only through prompt placeholders.
 

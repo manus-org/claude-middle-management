@@ -559,6 +559,15 @@ mkdir -p "$(dirname "$F")" && ( umask 077; cat > "$F" ) && chmod 600 "$F"   # UR
 Model and runtime of the morning thread are inherited from the thread that created the task; to
 change them later: `update_scheduled_task`.
 
+**Then set the workspace by hand** (MCP has no field for it). T3 0.1.0 stores this task with the
+workspace `{"type":"worktree","baseRef":"main","startFromOrigin":true}`; on a project folder that is
+not a git repo, or has no `origin/main`, every run fails in workspace preparation ("Failed to
+resolve the VCS driver") before the agent starts, while the webhook answers 202 and the task shows
+"succeeded". Tell the user, in plain text: T3 web UI, Settings > Scheduled tasks > edit
+"Morning coordinator" > Workspace "Use the project checkout" > save (the URL stays valid; never
+rotate the token). A later `update_scheduled_task` call that passes `bindToCurrentThread` resets
+the workspace to worktree: re-check it after one.
+
 **2. Units** — copies the trigger and its helpers OUT of the plugin, for the same reason as step 5.
 Ask for the trigger time (default `Mon..Fri 07:30`) and the watchdog time (default
 `Mon..Fri 08:15`, after the ritual would be done; systemd `OnCalendar=` syntax):
@@ -584,7 +593,8 @@ systemctl --user list-timers 'orch-morning-*' --no-pager
 A `morningWaitUntil` later than two hours after the trigger time needs a longer
 `TimeoutStartSec=` in `orch-morning-t3.service`. Then tell the user, in plain text: a test is
 `systemctl --user start orch-morning-t3.service` and opens a real morning thread in T3 (offer it,
-run it only on their yes); holidays are not skipped (disarm with
+run it only on their yes; it passes when that thread shows "Workspace ready", a 202 alone proves
+nothing); holidays are not skipped (disarm with
 `systemctl --user disable --now orch-morning-t3.timer orch-morning-watchdog.timer`, never run that
 here unasked); the copy is refreshed at the first session start after a plugin update (re-run
 this step only when the CHANGELOG says so).
