@@ -700,10 +700,12 @@ the files that hold them. No file = the skill's defaults.
 
 `plugins/middle-management/templates/docs/` holds the minimum a project needs before its first
 wrap: a `CLAUDE.md` and a `docs/` skeleton (`architecture.md`, `lessons.md`, README conventions
-for `runbooks/` and `handoffs/`). Copy what you want into a new repository and fill it in —
-nothing reads these as templates at runtime, they are a starting point, not a framework. The
-session log is the one file that is NOT per project: its skeleton sits beside them as
-`templates/session-log.md` and belongs at the machine-wide path above.
+for `runbooks/` and `handoffs/`, and `handoffs/lane-brief.md`, the brief the coordinator copies
+for each new lane). Copy what you want into a new repository and fill it in — they are a
+starting point, not a framework. Two files sit beside them in `templates/` because they are not
+per project: `session-log.md`, the skeleton for the machine-wide log above, and `pr-gate.md`,
+the checklist a lane copies beside its PR body (review-loop step 7) and the one template read at
+runtime: the optional PR gate hook counts its boxes.
 
 ## Contributing and releases
 

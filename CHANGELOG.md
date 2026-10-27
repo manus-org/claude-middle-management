@@ -27,12 +27,15 @@ rules, async tests, sequential capped checks, review, before the PR); the coordi
 `middle-management` skill and the handoffs README point to it.
 
 **PR gate (optional).** New hook `hooks/require-pr-gate.sh` and config key `prGate` (default `false`,
-validated by `config-check.sh`, setup step 12b). With it on, `gh pr create` (or `gh pr new`) in command
-position is denied until `pr-gate.md` in the folder of the `--body-file` names the head branch and has
-every box ticked; `-` or a `$VAR` body path is denied, and `MM_PR_GATE=off` overrides one PR on the
-user's word. A quoted mention, such as a commit message, is not matched. Without jq, awk or a valid
-config the hook stays out of the way. Known bypasses (`gh api`, a script, `bash -lc`) are listed in
-its header. Tests: the "PR gate" block in `tests/run.sh`.
+validated by `config-check.sh`, setup step 12b). With it on, `gh pr create` in command position is
+denied until `pr-gate.md` in the folder of the `--body-file` names the head branch and has every box
+ticked; `-` or a `$VAR` body path is denied. The head branch comes from `--head`, else from a
+`cd <path>` earlier in the same command, else from the tool call's cwd; when none gives one, the
+denial says to pass `--head`. `MM_PR_GATE=off` overrides one PR on the user's word, as an assignment
+directly in front of that `gh pr create` or in the hook's environment; a quoted mention, such as a
+commit message or a title, is not matched. Without jq, awk or a valid config the hook stays out of
+the way. Known bypasses (`gh api`, a script, `bash -lc`, a `<<` inside a quoted string) are listed
+in its header. Tests: the "PR gate" block in `tests/run.sh`.
 
 ## 0.13.1 - 2026-10-24
 

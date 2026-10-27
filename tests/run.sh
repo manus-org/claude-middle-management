@@ -1070,11 +1070,18 @@ gate 'Branch: lane/x' 6 1
 assert_has "after && in command position -> denied" '"deny"' "$(prg "git push && gh pr create -F $LF/pr-body.md")"
 assert_has "multi-line command with an open box -> denied (the continuation is joined)" "6 of 7" "$(prg "gh pr create \\
   --title 'a b' --body-file \"$LF/pr-body.md\"")"
-assert_has "gh pr new (alias) -> denied" '"deny"' "$(prg "gh pr new -F $LF/pr-body.md")"
+assert_has "timeout 60 in front -> denied" "6 of 7" "$(prg "timeout 60 gh pr create -F $LF/pr-body.md")"
+assert_has "MM_PR_GATE=off inside a --title -> denied" "6 of 7" "$(prg "gh pr create --title 'doc: MM_PR_GATE=off overrides' -F $LF/pr-body.md")"
+assert_has "MM_PR_GATE=off in a commit message before it -> denied" "6 of 7" "$(prg "git commit -m 'add MM_PR_GATE=off switch' && gh pr create -F $LF/pr-body.md")"
 assert_empty "a mention in echo -> silent" "" "$(prg 'echo "run gh pr create -F x.md next"')"
 assert_empty "a mention in a commit message -> silent" "" "$(prg 'git commit -m "gate on gh pr create; tests"')"
 assert_empty "MM_PR_GATE=off in the command -> passes" "" "$(prg "MM_PR_GATE=off gh pr create -F $LF/pr-body.md")"
 assert_empty "MM_PR_GATE=off in the environment -> passes" "" "$(PRG_ENV=off prg "$OPENPR")"
+gate 'Branch: lane/x' 7 0
+assert_empty "cd <worktree> && gh pr create from a non-git cwd -> passes" "" "$(prg "cd $LF && gh pr create --body-file $LF/pr-body.md" "$H")"
+assert_empty "...a relative body path resolves against the cd target" "" "$(prg "cd $LF && gh pr create -F pr-body.md" "$H")"
+assert_has "non-git cwd, no cd, no --head -> denied with pass --head" "pass --head <branch>" "$(prg "$OPENPR" "$H")"
+assert_empty "non-git cwd with --head -> passes" "" "$(prg "$OPENPR --head lane/x" "$H")"
 printf '{oops' > "$H/.claude/middle-management.json"
 assert_empty "unusable config -> gate silent" "" "$(prg "$OPENPR")"
 
