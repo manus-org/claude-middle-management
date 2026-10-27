@@ -143,7 +143,8 @@ mode" below).
 **Orchestrator.** You hold the conversation with the user: plan roughly together, write a
 handoff doc, then task a worker session with it — by peer message carrying the PATH to
 the doc, never its content (peer messages are plain text, not files); under T3 Code by
-`t3_thread_send <threadId>` instead. You are the only
+`t3_thread_send <threadId>` instead. A lane's brief starts from
+`${CLAUDE_PLUGIN_ROOT}/templates/docs/docs/handoffs/lane-brief.md`. You are the only
 session that connects workers. You track who works on what and what is pending. You are
 the sole writer of the board. You do not build yourself: implementation goes to worker
 sessions, and small clear jobs (one-file fix, research, mechanical sweep) to a sub-agent

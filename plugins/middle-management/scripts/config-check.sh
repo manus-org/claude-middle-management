@@ -2,6 +2,7 @@
 # middle-management plugin — config path resolver + THE shape filter (single owner).
 # Consumers: hooks/session-role.sh, hooks/protect-main-checkouts.sh,
 #   hooks/block-blanket-git-add.sh, hooks/long-running-as-unit.sh, hooks/require-review-loop.sh,
+#   hooks/require-pr-gate.sh,
 #   commands/middle-management-setup.md (via Bash),
 #   scripts/wt, scripts/orchestrator.sh, scripts/morning-headless.sh, scripts/t3-wake.sh,
 #   scripts/t3-token.sh, hooks/t3-report.sh, hooks/require-work-packages.sh,
@@ -72,6 +73,7 @@ validate() {
     and ((.maxUnits // 0) | type == "number")
     and ((.longRunningAsUnit // false) | type == "boolean")
     and ((.reviewLoopGate // false) | type == "boolean")
+    and ((.prGate // false) | type == "boolean")
     and ((.reaperMaxHours // 0) | type == "number")
     and ((.reaperOwnerlessMinutes // 0) | type == "number")
     and ((.reaperDigestHour // 7) | (type == "number" and . == (. | floor) and . >= 0 and . <= 23))

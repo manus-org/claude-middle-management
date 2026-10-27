@@ -18,4 +18,7 @@ sweep finds something open that will not be finished in that session.
 - **Lifecycle:** when the work is done, move the file to `docs/archive/` — create that directory
   the first time; nothing else in this skeleton does.
 
+- **Lane brief:** a lane's kickoff brief starts from `lane-brief.md` beside this file; it sits
+  here because a lane brief is a handoff to a fresh session.
+
 A handoff must work in a fresh session with no other context.
