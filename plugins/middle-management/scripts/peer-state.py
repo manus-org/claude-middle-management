@@ -671,8 +671,11 @@ def t3_threads():
     if not logs:
         return {}
     try:
+        # LC_ALL=C: under a UTF-8 locale GNU grep took ~12 s over 394 MB of logs, past this 10 s and
+        # orchestrator.sh read_peer's `timeout 10`; the pattern is ASCII, so results are identical.
         out = subprocess.run(["grep", "-oHE", '"session_id":"[0-9a-f-]{36}"'] + logs,
-                             capture_output=True, text=True, timeout=10).stdout
+                             capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, LC_ALL="C")).stdout
     except (OSError, subprocess.TimeoutExpired):
         return {}
     seen = {}

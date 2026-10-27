@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.2 - 2026-10-27
+
+**Morning coordinator in T3: two launch failures fixed.** `peer-state.py` runs its grep over T3's
+provider logs with `LC_ALL=C`: under a UTF-8 locale GNU grep took ~12 s over 394 MB of logs, past
+the `timeout 10` that `orchestrator.sh` wraps around it, so `claim --morning` against an asleep
+coordinator failed closed ("could not be read off disk"); now the whole script takes 1.6 s, with
+identical results (the pattern is ASCII). Docs: a webhook task created over MCP gets a worktree
+workspace that fails before the agent starts on a project folder that is not a git repo, while the
+webhook answers 202 and the task shows "succeeded"; README and setup step 7b now say to set the
+task's Workspace to "Use the project checkout" in the T3 web UI, and that 202 means created, not
+prepared. Hosts that already run the morning task: change its Workspace once, as setup step 7b says.
+
 ## 0.13.1 - 2026-10-24
 
 **Guard canary: the daily end-to-end probe works again.** The probe meant to run `claude -p` with
