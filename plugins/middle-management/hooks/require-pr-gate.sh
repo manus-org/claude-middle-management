@@ -2,7 +2,8 @@
 # middle-management plugin: OPTIONAL PreToolUse hook (matcher Bash), OFF unless the config says
 # "prGate": true. Consumers: hooks/hooks.json, tests/run.sh.
 #
-# A pull request opens only with its checklist complete (review-loop step 7): `gh pr create` is
+# A pull request opens only with its checklist complete (review-loop step 7): `gh pr create` (also
+# `gh pr new`, and with `-R/--repo X` in front of `pr`) is
 # denied until `pr-gate.md` in the folder of the --body-file carries `Branch: <the head branch>`,
 # no unticked box, and at least as many ticked boxes as templates/pr-gate.md has.
 # Body file: `--body-file X`, `--body-file=X`, `-F X`; `~/` is expanded, a relative path is
@@ -25,7 +26,8 @@
 # the same as the other optional gates.
 # Known bypasses (the gate raises the cost of skipping the checklist, it does not make skipping
 # impossible): `gh api .../pulls -X POST`, gh inside a script, alias or `bash -lc '...'`, and a
-# `<<` inside a quoted string, which turns on heredoc mode so the rest of the command is dropped.
+# `<<` inside a quoted string, which turns on heredoc mode so the rest of the command is dropped,
+# and a `gh pr create` inside `$(...)` or backticks (`URL="$(gh pr create ...)"`).
 # ponytail: a stripper instead of a parser; a `;|&(){}` inside a quoted path is not restored.
 set -u
 
@@ -91,7 +93,7 @@ END {
       break
     }
     if (s ~ /^cd[ \t]+[^ \t]/) { cdd = s; sub(/^cd[ \t]+/, "", cdd); sub(/[ \t].*/, "", cdd) }
-    if (!off && s ~ /^gh[ \t]+pr[ \t]+create([ \t]|$)/) print cdd "\003" s
+    if (!off && s ~ /^gh[ \t]+((-R|--repo)[ \t=]?[^ \t]+[ \t]+)?pr[ \t]+(create|new)([ \t]|$)/) print cdd "\003" s
   }
 }' 2>/dev/null)"
 [ -n "$SEGS" ] || exit 0
