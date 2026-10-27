@@ -1077,6 +1077,8 @@ assert_empty "a mention in echo -> silent" "" "$(prg 'echo "run gh pr create -F 
 assert_empty "a mention in a commit message -> silent" "" "$(prg 'git commit -m "gate on gh pr create; tests"')"
 assert_empty "MM_PR_GATE=off in the command -> passes" "" "$(prg "MM_PR_GATE=off gh pr create -F $LF/pr-body.md")"
 assert_empty "MM_PR_GATE=off in the environment -> passes" "" "$(PRG_ENV=off prg "$OPENPR")"
+assert_has "gh -R owner/repo pr create -> held too" "6 of 7" "$(prg "gh -R o/r pr create -F $LF/pr-body.md")"
+assert_has "gh --repo=o/r pr new (alias) -> held too" "6 of 7" "$(prg "gh --repo=o/r pr new -F $LF/pr-body.md")"
 gate 'Branch: lane/x' 7 0
 assert_empty "cd <worktree> && gh pr create from a non-git cwd -> passes" "" "$(prg "cd $LF && gh pr create --body-file $LF/pr-body.md" "$H")"
 assert_empty "...a relative body path resolves against the cd target" "" "$(prg "cd $LF && gh pr create -F pr-body.md" "$H")"

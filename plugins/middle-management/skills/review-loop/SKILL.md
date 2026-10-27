@@ -74,8 +74,8 @@ the answer, and it confirms them. Ask what happens instead:
 - leading: "Check that a late browser post is idempotent (same requestId)."
 - open: "Two writers can end call C: the deadline job and the browser post. Walk both orders. What does each caller see?"
 
-**Lenses for a plan, concept or handoff** (the ten lenses of the completeness gate, verbatim, plus
-11 and 12).
+**Lenses for a plan, concept or handoff** (the twelve lenses of the completeness gate,
+verbatim).
 The reviewer answers **every** lens, each ending in a finding or in `covered — <plan section>`.
 A lens left silent is an unfinished review.
 

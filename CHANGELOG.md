@@ -8,8 +8,9 @@ and config key whether the change needs it and what the smaller version is, quot
 rules, and from round 2 on asks what the last round of fixes added. Lens 12 (async paths) walks races
 on a shared key, replays, retries after a partial commit and per-call timeouts; each path gets a test
 before the PR or a written reason. The result lenses name both. Cause: a pull request whose own review
-had passed drew thirteen maintainer notes: seven on races, retries and late answers, four on
-machinery the change did not need, two on repo rules nobody had walked.
+had passed drew thirteen maintainer notes: four on correctness and races, three on retries and
+timeouts, two on an unrecorded API policy, two on pieces the change did not need, two on repo
+rules nobody had walked.
 
 **Non-leading reviewer briefs.** Step 3 now says the brief carries the acceptance criteria and the
 files, never the expected verdict, with a leading and an open example. The quoted reviewer rules add
