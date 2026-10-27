@@ -62,6 +62,12 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/long-running-as-unit.sh\"",
             "timeout": 10,
             "statusMessage": "middle-management: long-runners as units"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/require-pr-gate.sh\"",
+            "timeout": 10,
+            "statusMessage": "middle-management: PR gate"
           }
         ]
       },
