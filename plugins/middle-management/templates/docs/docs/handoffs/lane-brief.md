@@ -26,8 +26,9 @@ timeout) gets a test.
 
 Every check the lane runs (touched packages, or the full suite when the coordinator calls for it)
 runs one at a time with `--concurrency=1` through `/wt cap` or your capped wrapper; type-checks
-run one after another. A repo whose pre-push hook runs the checks in parallel: run them that way
-first, then push with the hook skipped (lefthook: `LEFTHOOK=0 git push`).
+run one after another. A repo whose pre-push hook runs the checks in parallel: run the hook's own
+check command one at a time through the capped wrapper first (same filter, `--concurrency=1`),
+then push with the hook skipped (lefthook: `LEFTHOOK=0 git push`).
 
 ## Review
 

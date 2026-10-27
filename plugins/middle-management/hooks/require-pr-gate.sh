@@ -27,7 +27,8 @@
 # Known bypasses (the gate raises the cost of skipping the checklist, it does not make skipping
 # impossible): `gh api .../pulls -X POST`, gh inside a script, alias or `bash -lc '...'`, and a
 # `<<` inside a quoted string, which turns on heredoc mode so the rest of the command is dropped,
-# and a `gh pr create` inside `$(...)` or backticks (`URL="$(gh pr create ...)"`).
+# a `gh pr create` inside a QUOTED `$(...)` or backticks (`URL="$(gh pr create ...)"`; unquoted ones
+# are held), and a repo flag between `pr` and `create` (`gh pr -R x create`).
 # ponytail: a stripper instead of a parser; a `;|&(){}` inside a quoted path is not restored.
 set -u
 
