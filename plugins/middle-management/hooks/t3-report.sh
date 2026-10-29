@@ -42,7 +42,9 @@ fi
 SIDE="$SDIR/orchestrator.t3.json"
 [ -f "$SIDE" ] || exit 0
 COORD=$(jq -r '.sessionId // empty' "$SIDE" 2>/dev/null)
-[ -n "$COORD" ] && [ "$COORD" != "$SID" ] || exit 0
+[ -n "$COORD" ] || exit 0
+# The coordinator reports to nobody: a text it held as a worker is stale (r1 NIT), dropped.
+[ "$COORD" = "$SID" ] && { rm -f "$CFG_DIR/state/t3-report/$SID".pending{,.sum}; exit 0; }
 # Morning takeover pending (README "Morning coordinator in T3 Code"): today's morning trigger started
 # a thread (morning-t3.sh status "posted", not yet "claimed"/"refused" by claim --morning), the post
 # is under 30 min old, and the sidecar still predates it, so it names the night coordinator. A session
@@ -95,13 +97,16 @@ TRIM=$(printf '%s' "$TEXT" | tr -d '[:space:]')
 RDIR="$CFG_DIR/state/t3-report"; mkdir -p "$RDIR" 2>/dev/null
 SUM=$(printf '%s' "$TEXT" | sha256sum | cut -d' ' -f1)
 [ "$(cat "$RDIR/$SID" 2>/dev/null)" = "$SUM" ] && TEXT=""
-PEND="$RDIR/$SID.pending"
+PEND="$RDIR/$SID.pending"   # held texts; $PEND.sum = sha of the last one held
+# ponytail: a held text older than 24 h (session died or lost its coordinator) is dropped, not sent.
+[ -n "$(find "$PEND" -mmin +1440 2>/dev/null)" ] && rm -f "$PEND" "$PEND.sum"
 FROM=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null \
   | jq -r --arg id "$SID" 'select(.sessionId == $id) | .name | strings' 2>/dev/null | head -1)
 
 # Interim turn (F14): one of this session's sub-agents is still running, so a sub-agent completion
 # turn does not wake the coordinator with a short status. Held only when the text does not look like
-# a report (short, no READY/LIVE/blocked marker, no question, no "Close this tab."): a report is sent
+# a report (short, no READY/LIVE/blocked/FERTIG marker in any case, no question or "Frage:", no
+# "wartet auf", no "Close this tab."): a report is sent
 # at once (a58212a2-W6: a READY written while a reviewer ran was lost). A held text is never dropped:
 # it waits in <sid>.pending and goes out with the next turn that sends, even a short or empty one.
 # ponytail: held.log, not failures.log: t3-watch.py turns each failures.log line into a "report lost"
@@ -110,9 +115,9 @@ if jq -e '[.background_tasks // [] | .[]? | select(type == "object" and .type ==
         and ((.status // "running") | test("^(completed|failed|killed|stopped|cancelled|canceled|done|error)$") | not))]
        | length > 0' <<<"$IN" >/dev/null 2>&1 \
    && [ "${#TEXT}" -le "${T3_REPORT_INTERIM_MAX:-500}" ] \
-   && ! grep -qE '\b(READY|LIVE|BLOCKED|[Bb]locked)\b|Close this tab\.|\?[[:space:]]*$' <<<"$TEXT"; then
+   && ! grep -qiE '\b(READY|LIVE|BLOCKED|FERTIG|question)\b|Frage:|wartet auf|Close this tab\.|\?[[:space:]]*$' <<<"$TEXT"; then
   [ -n "$TEXT" ] || exit 0
-  [ -f "$PEND" ] && case "$(cat "$PEND")" in *"$TEXT") exit 0 ;; esac
+  [ -f "$PEND" ] && [ "$(cat "$PEND.sum" 2>/dev/null)" = "$SUM" ] && exit 0   # same text again (whole sha)
   if [ ! -f "$PEND" ]; then
     printf '%s\t%s\t%s\tunknown\theld: sub-agent running · %s · %s\n' "$(date -Is)" "${FROM:-session ${SID:0:8}}" "$SID" "$SID" "${SUM:0:12}" \
       >> "$RDIR/held.log" 2>/dev/null
@@ -120,11 +125,13 @@ if jq -e '[.background_tasks // [] | .[]? | select(type == "object" and .type ==
       '{systemMessage: "middle-management: report held while a sub-agent runs; it will be sent with your next turn, or send it now via t3_thread_send \($t)"}'
   fi
   (umask 077; { [ -s "$PEND" ] && printf '\n\n'; printf '%s' "$TEXT"; } >> "$PEND")
+  printf '%s\n' "$SUM" > "$PEND.sum"
   exit 0
 fi
-if [ -s "$PEND" ]; then   # the held text(s) first, then this turn's text
+if [ -s "$PEND" ]; then   # the held text(s) first, then this turn's text (once, if it is the last held one)
+  [ "$(cat "$PEND.sum" 2>/dev/null)" = "$SUM" ] && TEXT=""
   [ -n "$TEXT" ] || SUM=$(sha256sum < "$PEND" | cut -d' ' -f1)   # flush only: the block-once key
-  TEXT="$(cat "$PEND")${TEXT:+$'\n\n'$TEXT}"; rm -f "$PEND"
+  TEXT="$(cat "$PEND")${TEXT:+$'\n\n'$TEXT}"; rm -f "$PEND" "$PEND.sum"
 fi
 [ -n "$TEXT" ] || exit 0
 
