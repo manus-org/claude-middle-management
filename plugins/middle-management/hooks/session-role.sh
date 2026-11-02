@@ -158,7 +158,8 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
       printf 'T3 Code: your seat is bound to %s, report task %s. Worker reports arrive by\n' "$T3T" "$(side '.reportTaskId // "?"')"
-      if [ "$CFG_STATE" -eq 0 ] && jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1; then
+      # the same test as hooks/t3-report.sh and scripts/t3-watch.py: an otherwise invalid config switches it too
+      if jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1; then
         printf 'themselves (their Stop hook), quiet mode: a turn of their own only while you sleep or for a READY / blocked /\n'
         printf 'question, digested. Worker reports may arrive inside your turn as "Worker reports (quiet)"; handle them in the\n'
         printf 'turn you are in, do not open a chat reply per report. Task or ask a worker with t3_thread_send <its thread id>\n'

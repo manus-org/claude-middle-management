@@ -32,7 +32,8 @@ first; the rest stays and is handed in by the woken turn's hooks. Items in the d
 rename (<item>.claimed.<pid>), deleted on 202 and put back otherwise. A failed wake started by a
 worker takes that worker's own item out again (exit 4: it sends it itself) and writes one
 failures.log line; the watcher's retries write one line per failure episode (<inbox>/.failing).
-inject: only in the session the sidecar names, never in a sub-agent (agent_id); claims what it
+inject: only in the session the sidecar names, never in a sub-agent (agent_id), never into a
+"Keepalive" prompt (answered with exactly "OK"; its Stop takes them); claims what it
 prints (8000 chars per call, at least one item), deletes it after printing, and drops items older
 than 24 h and items that session sent itself before it held the seat. Env: T3W_NOW (test seam).
 """
@@ -258,26 +259,28 @@ def decide(inbox, sid, items, hold=False):
     return "idle" if state == "idle" and NOW - last >= debounce else None
 
 
-def send(text, from_, env):
+def send(text, from_, env, limit=11):
     """t3-wake.sh --digest; (exit code, reason). Its stderr carries the reason, never the URL."""
     with tempfile.NamedTemporaryFile("w", prefix="t3-inbox.", suffix=".txt", delete=False) as f:
         f.write(text)
     try:
         p = subprocess.run(["bash", os.path.join(HERE, "t3-wake.sh"), from_, "--digest", f.name],
                            env=dict(os.environ, MM_SESSION_ID="", **env), capture_output=True,
-                           text=True, timeout=11)
+                           text=True, timeout=limit)
         rc, err = p.returncode, p.stderr
     except (OSError, subprocess.TimeoutExpired):
-        rc, err = 4, "t3-wake.sh did not end within 11 s"
+        rc, err = 4, "t3-wake.sh did not end within %d s" % limit
     finally:
         os.unlink(f.name)
     m = re.search(r"NOT delivered \((.*)\)", err)
     return rc, (m.group(1) if m else ((err.strip().splitlines() or ["exit %s" % rc])[-1])[:200])
 
 
-def run(inbox, sid, from_, env, own=None, hold=False, dry=False, label=""):
+def run(inbox, sid, from_, env, own=None, hold=False, dry=False, label="", start=None):
     """Decide, and send one digest wake when it says so. 0 = nothing to send or 202, 3 = the
-    sidecar is gone, 4 = not delivered. own = the caller's item (deliver), taken back on failure."""
+    sidecar is gone, 4 = not delivered. own = the caller's item (deliver), taken back on failure.
+    start = deliver's time.monotonic() at its start: it must end inside t3-report.sh's 15-s guard,
+    else the guard kills it after its item is queued and the session is told "NOT delivered"."""
     if dry:
         items = pending(inbox, drop=False)
         why = decide(inbox, sid, items, hold)
@@ -286,7 +289,7 @@ def run(inbox, sid, from_, env, own=None, hold=False, dry=False, label=""):
             "would wake (%s)" % why if why else "no wake"))
         return 0
     try:
-        with locked(inbox, 3):
+        with locked(inbox, 3 if start is None else 2):
             items = housekeep(inbox)
             why = decide(inbox, sid, items, hold)
             if not why:
@@ -297,7 +300,7 @@ def run(inbox, sid, from_, env, own=None, hold=False, dry=False, label=""):
             put(os.path.join(inbox, ".last-wake"), "%d\n" % NOW)   # a second deliver sees it under way
     except TimeoutError:
         return 0        # ponytail: the lock holder decides now; the next report or the tick follows up
-    rc, reason = send(text, from_, env)
+    rc, reason = send(text, from_, env, 11 if start is None else max(2, 13 - (time.monotonic() - start)))
     if rc == 0:
         for c, it in claimed:
             with contextlib.suppress(OSError):
@@ -331,6 +334,7 @@ def run(inbox, sid, from_, env, own=None, hold=False, dry=False, label=""):
 
 
 def deliver(sdir, cls, from_, path):
+    start = time.monotonic()
     sid = coord_sid(sdir)
     if sid is None:
         return 3
@@ -360,12 +364,13 @@ def deliver(sdir, cls, from_, path):
     except OSError:
         # The inbox cannot take it: today's path, one wrapped report, so nothing is lost.
         try:
-            return subprocess.run(["bash", os.path.join(HERE, "t3-wake.sh"), from_, path], timeout=11,
+            return subprocess.run(["bash", os.path.join(HERE, "t3-wake.sh"), from_, path],
+                                  timeout=max(2, 13 - (time.monotonic() - start)),
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
         except (OSError, subprocess.TimeoutExpired):
             return 4
     ilog("queued", own[1], it["class"])
-    return run(inbox, sid, from_, {}, own=own)
+    return run(inbox, sid, from_, {}, own=own, start=start)
 
 
 def tick(name, sdir, dry=False, hold=False):
@@ -402,6 +407,8 @@ def inject():
         return 0
     if event == "Stop" and inp.get("stop_hook_active"):
         return 0                # a continuation: never a second block (no loop)
+    if event == "UserPromptSubmit" and str(inp.get("prompt") or "").strip() == "Keepalive":
+        return 0                # answered with exactly "OK": the Stop drain hands them in right after
     for sdir in [STATE] + sorted(glob.glob(os.path.join(STATE, "scopes", "*"))):
         inbox = os.path.join(sdir, "t3-inbox")
         if not glob.glob(os.path.join(inbox, "*.json")) or coord_sid(sdir) != sid:

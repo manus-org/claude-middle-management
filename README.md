@@ -494,7 +494,9 @@ changes the worker side of the Stop hook; everything else stays as above.
   waiting items to the coordinator as `additionalContext` headed "Worker reports (quiet)", at most
   8000 chars per call, and the coordinator's own Stop hook hands in what still waits with one block
   (never on a continuation, so no loop). Only in the session the sidecar names, never in its
-  sub-agents (`agent_id`). In every other session the hook ends in bash builtins. An item is claimed
+  sub-agents (`agent_id`), and never into a prompt that is exactly `Keepalive` (its Stop takes them
+  after the `OK`). Every other session pays one `cat` per tool call while reports wait (nothing
+  when none wait); Python runs only in the coordinator. An item is claimed
   by rename, deleted once printed or on HTTP 202 and put back otherwise; a claim older than 5 min
   goes back (sent twice rather than never). `<config-dir>/state/t3-report/inbox.log` has one line
   per item event, never the text.
@@ -504,9 +506,15 @@ changes the worker side of the Stop hook; everything else stays as above.
   (its session is told "report NOT delivered ... send it yourself") with one `failures.log` line;
   the other items stay, and the watcher's retries write one line per failure episode. An item
   older than 24 h is dropped with an `inbox.log` line, and so is one the coordinator itself sent
-  before it held the seat.
+  before it held the seat. An important report that lands while the coordinator's turn is ending
+  (after its Stop hook, before it reads as idle, about 0.1 s) waits for the next watcher tick,
+  then for the debounce window: late, not lost. If the inbox cannot be written, the report goes out
+  as before, one wrapped turn, also a status report (never lost beats quiet).
 - **Not covered.** A report sent by hand with `t3-wake.sh` (a session outside T3, pathfinder's push,
   the watcher's own wakes) keeps its own turn. The flag is machine-wide, for every scope.
+- **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the
+  update keeps its old hooks (no inbox hook, no Stop drain) until it restarts, e.g. after T3's
+  30-min idle end or a new claim. Until then its status reports arrive only inside digests.
 
 ## Morning coordinator in T3 Code
 

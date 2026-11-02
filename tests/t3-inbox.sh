@@ -165,6 +165,10 @@ dl 20 status w3 "three" >/dev/null
 OUT=$(inj 30 "$(ev UserPromptSubmit)")
 is "UserPromptSubmit -> additionalContext too" "$(jq -r '.hookSpecificOutput | [.hookEventName, (.additionalContext | test("three"))] | @tsv' <<<"$OUT")" "UserPromptSubmit	true"
 OUT=$(inj 40 "$(ev PostToolUse)"); is "an empty inbox -> nothing" "$OUT" ""
+dl 41 status w4 "keep for after the OK" >/dev/null
+OUT=$(inj 42 "$(jq -cn '{session_id:"sid-coord", hook_event_name:"UserPromptSubmit", prompt:"Keepalive\n"}')")
+is "a Keepalive prompt (answered with exactly OK) -> nothing injected (review r1 L1)" "$OUT/$(items)" "/1"
+OUT=$(inj 43 "$(ev Stop)"); has "...its Stop hands the report in after the OK" "keep for after the OK" "$(jq -r .reason <<<"$OUT")"
 X=$(python3 -c 'print("y" * 3500)')
 for w in a b c; do dl 50 status "w$w" "$w$X" >/dev/null; done
 OUT=$(inj 60 "$(ev PostToolUse)"); C=$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")
@@ -217,6 +221,11 @@ sleep 1; OUT=$(inj 11 "$(ev UserPromptSubmit)"); wait "$W1"
 is "an inject while the wake is in flight takes nothing the wake claimed" "$OUT" ""
 is "...the wake carried both" "$(grep -c 'status before the wake\|READY during the wake' <<<"$(prompt)")" 2
 is "...nothing left" "$(items)/$(ls "$IN" | grep -c claimed)" "0/0"
+reset; coord asleep; mkdir -p "$IN"; flock "$IN/.lock" sleep 6 & W1=$!; sleep 0.3
+T1=$(date +%s.%N); RC=$(dl 0 important lk "READY while the lock is held"); EL=$(python3 -c "print(round($(date +%s.%N) - $T1, 1))")
+is "deliver while another holds the lock 6 s -> exit 0, queued, no wake (review r1 L2)" "$RC/$(items)/$(nhook)" "0/1/0"
+python3 -c "import sys; sys.exit(0 if $EL < 4 else 1)" && ok "...it waits 2 s at most (${EL}s), well inside the hook's 15-s guard" || bad "lock wait 2 s" "< 4 s" "${EL}s"
+kill "$W1" 2>/dev/null; wait "$W1" 2>/dev/null
 reset; coord busy; fresh 0; echo 202 > "$TMP/hook.code"
 for i in 1 2 3 4; do dl $i status "p$i" "parallel $i" >/dev/null; done
 inj 10 "$(ev PostToolUse)" > "$TMP/o1" & W1=$!; inj 10 "$(ev PostToolUse)" > "$TMP/o2" & W2=$!; wait "$W1" "$W2"

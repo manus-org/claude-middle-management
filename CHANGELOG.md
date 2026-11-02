@@ -11,9 +11,11 @@ hook's one marker pattern) wakes the coordinator, with one digest of every pendi
 asleep, after `fallbackMin`, while it is idle at most once per `debounceMin`, and as before when its
 registry entry has no `status` field or the watcher has not ticked for 30 min. A status report never
 wakes it. Everything else reaches the coordinator inside its own turn: the new hook
-`hooks/t3-inbox.sh` on PostToolUse (every tool, no status message, ends in bash builtins outside the
-coordinator) and UserPromptSubmit hands it in as "Worker reports (quiet)", never in a sub-agent,
-and the coordinator's own Stop hands in what still waits with one block. `t3-watch.py` runs the
+`hooks/t3-inbox.sh` on PostToolUse (every tool, no status message; other sessions pay one `cat`
+per tool call while reports wait, Python runs only in the coordinator) and UserPromptSubmit hands it
+in as "Worker reports (quiet)", never in a sub-agent and never into a `Keepalive` prompt, and the
+coordinator's own Stop hands in what still waits with one block. If the inbox cannot be written, the
+report goes out as before (also a status report). `t3-watch.py` runs the
 inbox tick (fallback, debounce window, 24-h drop; nothing while the morning claim is pending, also
 while the T3 API is down). A failed digest wake gives the worker its own report back, as before
 ("report NOT delivered"), and writes one `failures.log` line per failure episode. `t3-wake.sh`
@@ -29,8 +31,10 @@ that sends; a report goes at once. One `held.log` line and one notice per hold.
 
 Hosts: nothing to re-run. The first session start on 0.15.0 copies `t3-inbox.py` into the
 watcher's copy dir (`hooks/refresh-copies.sh`). To turn quiet reports on, add `quietReports` to
-`<config dir>/middle-management.json`; without the T3 watcher (setup step 8) important reports
-wake the coordinator directly, as before.
+`<config dir>/middle-management.json`, but only once every coordinator runs 0.15.0: a process
+started before the update keeps its old hooks until it restarts (T3's 30-min idle end, or a new
+claim). Without the T3 watcher (setup step 8) important reports wake the coordinator directly, as
+before.
 
 ## 0.13.2 - 2026-10-27
 
