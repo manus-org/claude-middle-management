@@ -107,7 +107,7 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 | Open-items drop | script + banner line | Every session writes each "for later" item the moment it appears, with `scripts/open-items.py add`, to its own file under `<config-dir>/open-items/`; the coordinator's banner counts what is not on the board yet, `list` shows it, and `done` deletes a file only once every key is on the board and the session is gone. A to-do no longer dies with a session that never wrapped, or with a coordinator hand-over. |
 | `morning-ritual` skill | skill | The coordinator’s day-opener: messages delta, repo state, wrap audit, board sweep, machine cleanup, your user’s to-do list, day plan. The to-do list also runs alone ("todo list", "meine offenen To-Dos"): every open `owner: user` item from the board and the drops, grouped decide / click / run / read, only what was not delivered yet (`open-items.py todo`). Coordinator sessions only; carries CUSTOMIZE markers for your team’s stack. |
 | Headless morning ritual | systemd user timer (optional, Linux) | Weekdays 07:30: nothing moved since the last delivered ritual → one "no progress since <date>" line, no model run. Otherwise a 25-second login probe (429/401/no answer → a second credential from a file the unit names), the `morning-ritual` skill under `--max-budget-usd` and a hard timeout, and the day plan through your `notifyCommand`. A failure arrives as headline + cause + fix command, not journal lines. Installed by setup step 7; see [Headless morning ritual](#headless-morning-ritual). |
-| T3 report hook | Stop hook (T3 Code only) | In a T3 Code thread whose scope's coordinator is bound to a thread: sends the last text of each worker turn to the coordinator's report task, which wakes it, also when it is asleep. Holds short interim turns while its own sub-agents run and sends them with the next turn (a report is sent at once); skips repeats and a bare `OK`; a failed send is told to the session once. See [T3 Code](#t3-code). |
+| T3 report hook | Stop hook (T3 Code only) | In a T3 Code thread whose scope's coordinator is bound to a thread: sends the last text of each worker turn to the coordinator's report task, which wakes it, also when it is asleep. Holds short interim turns while its own sub-agents run and sends them with the next turn (a report is sent at once); skips repeats and a bare `OK`; a failed send is told to the session once. With `quietReports` on, reports go into an inbox and only an important one wakes the coordinator; the rest reaches it inside its own turn (PostToolUse / UserPromptSubmit hook `hooks/t3-inbox.sh`). See [T3 Code](#t3-code), [Quiet reports](#quiet-reports). |
 | T3 watcher | systemd user timer (optional, Linux) | Every 10 minutes, no model: usage limits (with a retry), clicks pending, stuck runs, lost reports, an open handover, a folder without coordinator, and the topics tick. Installed by setup step 8. |
 | Follow-through | script + timer tick | `scripts/topics.py` is the one writer of a topic's state: it appends the session-log entry and keeps a table `<board>.topics.md`, a reminder digest and a daily digest, so no topic drops out of sight before it is done, reviewed and OK'd. See [Follow-through](#follow-through). |
 | `work-packages` skill + two hooks | skill, PreToolUse + SubagentStop hooks | Every sub-agent writes its package list into a report file first and appends each result at once, so a sub-agent that dies at 99 % leaves its work behind. A prompt without a `Report file:` line is refused; a sub-agent that ends without touching its report is held once. See [Sub-agents](#sub-agents). |
@@ -253,6 +253,9 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
   it), `t3TokenFile` (optional, default `~/.config/t3-threads/token`, mode 600) and
   `onLimitCommand` (optional, run once per usage-limit episode with the limited thread ids as
   arguments): the T3 watcher and `scripts/t3-token.sh`. See [T3 Code](#t3-code).
+- `quietReports` (optional, 0.15.0, default off): `{"enabled": true, "fallbackMin": 20,
+  "debounceMin": 10}` sends worker reports into an awake T3 coordinator without a turn each.
+  Machine-wide: it switches the coordinator of every scope. See [Quiet reports](#quiet-reports).
 - `morningTakeover`, `morningTaskUrlFile`, `morningWaitUntil`, `morningRoot` (optional, 0.11.1):
   the morning chain under T3 Code. See [Morning coordinator in T3 Code](#morning-coordinator-in-t3-code).
 - `replyTimestamp`, `intentCheck`, `intentCheckVerbs` (optional, 0.11.1, defaults `false` /
@@ -456,7 +459,8 @@ every thread, hooks included).
   `onLimitCommand` once, every 30 min a `Keepalive` into a limited coordinator or a one-call model
   probe for limited workers, then one "limit over" wake), a click pending >10 min, a run stuck >3 h,
   other failures (one wake per run; the coordinator's own is notified), lost reports, a handover
-  open >30 min, a folder without coordinator. API trouble is one notify per kind and day.
+  open >30 min, a folder without coordinator, and with `quietReports` on the inbox tick
+  ([Quiet reports](#quiet-reports)). API trouble is one notify per kind and day.
   `--dry-run` sends nothing, `--stats` counts posts per thread and day. State:
   `<config-dir>/state/t3-watch/`, `<config-dir>/state/t3-report/{failures.log,posts.tsv}`.
 - **Settle, not archive.** A worker's wrap ends with `t3_thread_organize settle` for its own
@@ -465,6 +469,44 @@ every thread, hooks included).
   loose-ends check, and removes a T3 worktree only when merged and settled. Nothing archives or
   deletes threads. The heartbeat skips a coordinator with a sidecar; poke and keep-warm do not
   apply in T3.
+
+### Quiet reports
+
+Off by default. Without it every worker turn is a turn of the coordinator's thread, and an awake
+coordinator answers each one: while your user reads one answer, five more arrive. `"quietReports":
+{"enabled": true}` (optional `fallbackMin`, default 20, and `debounceMin`, default 10, in minutes)
+changes the worker side of the Stop hook; everything else stays as above.
+
+- **The inbox.** After the usual filters (morning hold, `OK`, repeats, the sub-agent hold) a
+  worker's report becomes one item in `<marker dir>/t3-inbox/` (mode 0600, cut at 4000 chars),
+  written by `scripts/t3-inbox.py deliver`. Its class comes from the hook's one marker pattern:
+  **important** = READY, LIVE, BLOCKED, FERTIG, question, `Frage:`, `wartet auf`, `Close this tab.`
+  or a line ending in `?` (any case); everything else is **status**.
+- **When the coordinator is woken.** Only for an important item, with ONE digest of every pending
+  item that fits into 4000 chars, oldest first (`t3-wake.sh --digest`, sent unwrapped): when it is
+  asleep (no live registry entry), when the oldest important item is `fallbackMin` old, when its
+  registry entry has no `status` field (an older CLI: as before), when the watcher's stamp
+  `<config-dir>/state/t3-inbox.tick` is older than 30 min (no fallback would run), or when it is
+  idle and the last wake is `debounceMin` ago. Never within 120 s of the last wake (that turn takes
+  the rest) and never while it is busy otherwise. A status item never wakes it, in no state and at
+  no age: it rides along in the next digest or reaches it inside its next tool call or turn.
+- **Inside the turn.** `hooks/t3-inbox.sh` (PostToolUse on every tool, UserPromptSubmit) hands
+  waiting items to the coordinator as `additionalContext` headed "Worker reports (quiet)", at most
+  8000 chars per call, and the coordinator's own Stop hook hands in what still waits with one block
+  (never on a continuation, so no loop). Only in the session the sidecar names, never in its
+  sub-agents (`agent_id`). In every other session the hook ends in bash builtins. An item is claimed
+  by rename, deleted once printed or on HTTP 202 and put back otherwise; a claim older than 5 min
+  goes back (sent twice rather than never). `<config-dir>/state/t3-report/inbox.log` has one line
+  per item event, never the text.
+- **Never lost.** The watcher's inbox tick (every 10 min, per scope, also while the T3 API is down)
+  sends the fallback and a debounced wake whose window has passed; while the morning claim is
+  pending it wakes nobody. A failed wake started by a worker takes that worker's own item back out
+  (its session is told "report NOT delivered ... send it yourself") with one `failures.log` line;
+  the other items stay, and the watcher's retries write one line per failure episode. An item
+  older than 24 h is dropped with an `inbox.log` line, and so is one the coordinator itself sent
+  before it held the seat.
+- **Not covered.** A report sent by hand with `t3-wake.sh` (a session outside T3, pathfinder's push,
+  the watcher's own wakes) keeps its own turn. The flag is machine-wide, for every scope.
 
 ## Morning coordinator in T3 Code
 

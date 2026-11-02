@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.15.0 - 2026-11-02
+
+**Quiet reports (optional, config `quietReports`, default off).** Every worker turn became a turn of
+the T3 coordinator's thread, and an awake coordinator answered each one, so the user's chat filled
+with status chatter. With `"quietReports": {"enabled": true}` (optional `fallbackMin` 20,
+`debounceMin` 10) a worker's report goes into its scope's inbox `<marker dir>/t3-inbox/` (new
+`scripts/t3-inbox.py`). Only an important report (READY, LIVE, BLOCKED, FERTIG, question; the Stop
+hook's one marker pattern) wakes the coordinator, with one digest of every pending item: when it is
+asleep, after `fallbackMin`, while it is idle at most once per `debounceMin`, and as before when its
+registry entry has no `status` field or the watcher has not ticked for 30 min. A status report never
+wakes it. Everything else reaches the coordinator inside its own turn: the new hook
+`hooks/t3-inbox.sh` on PostToolUse (every tool, no status message, ends in bash builtins outside the
+coordinator) and UserPromptSubmit hands it in as "Worker reports (quiet)", never in a sub-agent,
+and the coordinator's own Stop hands in what still waits with one block. `t3-watch.py` runs the
+inbox tick (fallback, debounce window, 24-h drop; nothing while the morning claim is pending, also
+while the T3 API is down). A failed digest wake gives the worker its own report back, as before
+("report NOT delivered"), and writes one `failures.log` line per failure episode. `t3-wake.sh`
+gains `--digest <file>` and `--thread`; `config-check.sh` validates the key; the coordinator banner
+says how reports arrive. Off = the behaviour of 0.13.2, except one banner line for a worker
+outside T3: "Peer messages are not the report channel to a T3 thread" (was "do not reach").
+
+**A report written while a sub-agent runs is never lost (a58212a2-W6).** The Stop hook dropped the
+whole turn while one of the session's sub-agents still ran, so a READY written in the same turn as a
+reviewer launch never reached the coordinator. Now only a short interim text (at most 500 chars, no
+report marker) is held, in `state/t3-report/<sid>.pending` (0600), and sent first with the next turn
+that sends; a report goes at once. One `held.log` line and one notice per hold.
+
+Hosts: nothing to re-run. The first session start on 0.15.0 copies `t3-inbox.py` into the
+watcher's copy dir (`hooks/refresh-copies.sh`). To turn quiet reports on, add `quietReports` to
+`<config dir>/middle-management.json`; without the T3 watcher (setup step 8) important reports
+wake the coordinator directly, as before.
+
 ## 0.13.2 - 2026-10-27
 
 **Morning coordinator in T3: two launch failures fixed.** `peer-state.py` runs its grep over T3's
