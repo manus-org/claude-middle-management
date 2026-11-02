@@ -8,8 +8,9 @@
 # takeover) sends the last text of each turn to the coordinator of its scope. Nothing happens unless:
 # T3CODE_HOME is set (a T3 Code thread) · the scope has a sidecar <marker dir>/orchestrator.t3.json ·
 # this session is not sidecar.sessionId · it is not today's morning thread before its claim · the text is not empty and not exactly "OK" (the answer to a
-# Keepalive) · no sub-agent of this session is still running (the turn after the last one sends) ·
-# the text differs from the last one sent (sha256 in <cfg>/state/t3-report/<sessionId>).
+# Keepalive) · the turn is not an interim one while a sub-agent of this session runs (held, sent with
+# the next turn that sends; see "Interim turn") · the text differs from the last one sent (sha256 in
+# <cfg>/state/t3-report/<sessionId>).
 # No stop_hook_active skip (review r1 F4): a turn continued after another Stop hook's block carries
 # the real answer. A report that is not delivered is never silent: t3-wake.sh logs it to
 # failures.log (the watcher notifies), and this hook blocks ONCE per text, never on a continuation,
@@ -82,11 +83,6 @@ if [ -f "$MST" ]; then
   fi
 fi
 
-# Interim turn: one of this session's sub-agents is still running (F14).
-jq -e '[.background_tasks // [] | .[]? | select(type == "object" and .type == "subagent"
-        and ((.status // "running") | test("^(completed|failed|killed|stopped|cancelled|canceled|done|error)$") | not))]
-       | length > 0' <<<"$IN" >/dev/null 2>&1 && exit 0
-
 TEXT=$(jq -r '.last_assistant_message // empty | strings' <<<"$IN")
 if [ -z "$TEXT" ]; then   # fallback: the text blocks of the last assistant entry in the transcript
   TR=$(jq -r '.transcript_path // empty' <<<"$IN")
@@ -94,14 +90,44 @@ if [ -z "$TEXT" ]; then   # fallback: the text blocks of the last assistant entr
       | [.message.content[]? | select(.type == "text") | .text] | select(length > 0) | join("\n")] | last // empty' 2>/dev/null)
 fi
 TRIM=$(printf '%s' "$TEXT" | tr -d '[:space:]')
-[ -n "$TRIM" ] && [ "$TRIM" != OK ] || exit 0
+[ -n "$TRIM" ] && [ "$TRIM" != OK ] || TEXT=""
 
 RDIR="$CFG_DIR/state/t3-report"; mkdir -p "$RDIR" 2>/dev/null
 SUM=$(printf '%s' "$TEXT" | sha256sum | cut -d' ' -f1)
-[ "$(cat "$RDIR/$SID" 2>/dev/null)" = "$SUM" ] && exit 0
-
+[ "$(cat "$RDIR/$SID" 2>/dev/null)" = "$SUM" ] && TEXT=""
+PEND="$RDIR/$SID.pending"
 FROM=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null \
   | jq -r --arg id "$SID" 'select(.sessionId == $id) | .name | strings' 2>/dev/null | head -1)
+
+# Interim turn (F14): one of this session's sub-agents is still running, so a sub-agent completion
+# turn does not wake the coordinator with a short status. Held only when the text does not look like
+# a report (short, no READY/LIVE/blocked marker, no question, no "Close this tab."): a report is sent
+# at once (a58212a2-W6: a READY written while a reviewer ran was lost). A held text is never dropped:
+# it waits in <sid>.pending and goes out with the next turn that sends, even a short or empty one.
+# ponytail: held.log, not failures.log: t3-watch.py turns each failures.log line into a "report lost"
+# notify, and a held text is delayed, not lost. One line + one systemMessage per hold, not per turn.
+if jq -e '[.background_tasks // [] | .[]? | select(type == "object" and .type == "subagent"
+        and ((.status // "running") | test("^(completed|failed|killed|stopped|cancelled|canceled|done|error)$") | not))]
+       | length > 0' <<<"$IN" >/dev/null 2>&1 \
+   && [ "${#TEXT}" -le "${T3_REPORT_INTERIM_MAX:-500}" ] \
+   && ! grep -qE '\b(READY|LIVE|BLOCKED|[Bb]locked)\b|Close this tab\.|\?[[:space:]]*$' <<<"$TEXT"; then
+  [ -n "$TEXT" ] || exit 0
+  [ -f "$PEND" ] && case "$(cat "$PEND")" in *"$TEXT") exit 0 ;; esac
+  if [ ! -f "$PEND" ]; then
+    printf '%s\t%s\t%s\tunknown\theld: sub-agent running · %s · %s\n' "$(date -Is)" "${FROM:-session ${SID:0:8}}" "$SID" "$SID" "${SUM:0:12}" \
+      >> "$RDIR/held.log" 2>/dev/null
+    jq -cn --arg t "$(jq -r '.threadId // "?"' "$SIDE" 2>/dev/null)" \
+      '{systemMessage: "middle-management: report held while a sub-agent runs; it will be sent with your next turn, or send it now via t3_thread_send \($t)"}'
+  fi
+  (umask 077; { [ -s "$PEND" ] && printf '\n\n'; printf '%s' "$TEXT"; } >> "$PEND")
+  exit 0
+fi
+if [ -s "$PEND" ]; then   # the held text(s) first, then this turn's text
+  [ -n "$TEXT" ] || SUM=$(sha256sum < "$PEND" | cut -d' ' -f1)   # flush only: the block-once key
+  TEXT="$(cat "$PEND")${TEXT:+$'\n\n'$TEXT}"; rm -f "$PEND"
+fi
+[ -n "$TEXT" ] || exit 0
+
 TMP=$(umask 077; mktemp) || exit 0
 printf '%s' "$TEXT" > "$TMP"
 # Guard: the sender must end inside the hook's timeout (hooks.json: 20 s), else the hook is killed
