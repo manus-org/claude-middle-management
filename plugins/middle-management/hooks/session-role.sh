@@ -4,7 +4,8 @@
 # marker written by scripts/orchestrator.sh; resolves every path through
 # scripts/config-check.sh; runs scripts/open-items.py count in the coordinator branch. Reads the
 # T3 sidecar <marker dir>/orchestrator.t3.json (written by scripts/orchestrator.sh t3-bind) for the
-# T3 lines; never its reportUrl.
+# T3 lines; never its reportUrl. Reads the config key quietReports.enabled (README "Quiet reports")
+# for the coordinator's report line.
 #
 # Exactly ONE session coordinates, every other session is a worker. Two sources for
 # "who coordinates", in this order:
@@ -157,7 +158,13 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
       printf 'T3 Code: your seat is bound to %s, report task %s. Worker reports arrive by\n' "$T3T" "$(side '.reportTaskId // "?"')"
-      printf 'themselves as turns of this thread (their Stop hook). Task or ask a worker with t3_thread_send <its thread id>\n'
+      if [ "$CFG_STATE" -eq 0 ] && jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1; then
+        printf 'themselves (their Stop hook), quiet mode: a turn of their own only while you sleep or for a READY / blocked /\n'
+        printf 'question, digested. Worker reports may arrive inside your turn as "Worker reports (quiet)"; handle them in the\n'
+        printf 'turn you are in, do not open a chat reply per report. Task or ask a worker with t3_thread_send <its thread id>\n'
+      else
+        printf 'themselves as turns of this thread (their Stop hook). Task or ask a worker with t3_thread_send <its thread id>\n'
+      fi
       printf '(that wakes it, also after settle); never peer-message or poke a T3 thread, and do not t3_thread_wait after\n'
       printf 't3_thread_send: the answer comes by itself. After a model or effort change: update_scheduled_task on the\n'
       printf 'report task (or claim + t3-bind again), else the report turns keep the old model. Handover: launch the\n'
@@ -222,7 +229,7 @@ else
       printf 'python3 "%s/scripts/topics.py" entry --status <s> [--stage ready|live] [--waits-on "user · <q> · rec: <r>"] "<headline>"\n' "$PLUGIN_ROOT"
       printf 'A message that is exactly "Keepalive": answer exactly "OK" and nothing else.\n'
     else
-      printf 'Peer messages do not reach a T3 thread. Report with: bash "%s/scripts/t3-wake.sh" "%s" <file with the report>\n' "$PLUGIN_ROOT" "${MY_NAME:-worker}"
+      printf 'Peer messages are not the report channel to a T3 thread. Report with: bash "%s/scripts/t3-wake.sh" "%s" <file with the report>\n' "$PLUGIN_ROOT" "${MY_NAME:-worker}"
       printf '(exit 0 = delivered); never message other workers.\n'
     fi
     if [ "$(side '.previous.sessionId // empty')" = "$MY_ID" ]; then

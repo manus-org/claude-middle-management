@@ -11,6 +11,8 @@
 #   E  click pending >10 min · F stuck run >3 h · G other failure once per run id
 #   H  report lost · I T3 API problems, I2 T3 URL (t3Url, loopback default) · J no coordinator · K dry-run · L topics.py hook · M handover
 #   N  morning takeover pending: no wake into the night coordinator, notify instead
+#   O  quiet reports: the inbox tick (fallback, never for status, debounce, dry-run, morning hold,
+#      T3 API down, one failures line per episode, 24-h drop)
 #   Z  no webhook URL or token in any output
 # One local HTTP stub serves both the T3 shell (GET, checks the protocol header and the bearer) and
 # the webhook (POST, answers 202, 429 or sleeps past the timeout). `claude` is a stub on PATH.
@@ -30,7 +32,7 @@ has()   { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "contains: $2" "$3" ;; esa
 lacks() { case "$3" in *"$2"*) bad "$1" "lacks: $2" "$3" ;; *) ok "$1" ;; esac; }
 
 S=$TMP/s; mkdir -p "$S"
-cp "$SRC"/{t3-watch.py,t3-wake.sh,t3-token.sh,scope.py,config-check.sh} "$S/"
+cp "$SRC"/{t3-watch.py,t3-wake.sh,t3-inbox.py,peer-state.py,t3-token.sh,scope.py,config-check.sh} "$S/"
 H=$TMP/home; CFG=$H/.claude; mkdir -p "$CFG/state" "$H/.t3/userdata/logs/provider" "$TMP/bin" "$TMP/repo" "$TMP/ff"
 TOKEN="tok-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 printf '%s\n' "$TOKEN" > "$TMP/token"; chmod 600 "$TMP/token"
@@ -403,6 +405,50 @@ shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
 tick 2400; tick 4200; is "posted 40+ min ago and never claimed: the hold has ended" "$(nhook)" 1
 rm -rf "$CFG/state/morning-t3"; sidecar mcp:coord
 
+# ------------------------------------------------------------------------------------------ O --
+echo "O. quiet reports: the inbox tick (t3-inbox.py, imported)"
+QI=$CFG/state/t3-inbox; QS=$CFG/state/t3-inbox.tick
+qitem() {  # $1 = name, $2 = class, $3 = at (seconds after T0), $4 = text [, $5 = inbox dir]
+  mkdir -p "${5:-$QI}"; jq -cn --arg c "$2" --argjson a $((T0 + $3)) --arg t "$4" \
+    '{from: "w1", session: "sid-w1", thread: "mcp:w1", class: $c, text: $t, at: $a}' > "${5:-$QI}/$1.json"
+  chmod 600 "${5:-$QI}/$1.json"; }
+qcoord() { printf '{"pid":%s,"sessionId":"sid-coord","kind":"interactive","status":"%s"}\n' "$$" "$1" > "$CFG/sessions/c.json"; }
+qreset() { reset; rm -rf "$QI" "$QS" "$CFG/state/scopes/ff/t3-inbox"; mkdir -p "$CFG/sessions"; shell "[$COORD_OK]"; }
+qn() { find "$QI" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' '; }
+qreset; cp "$TMP/cfg.bak" "$CFG/middle-management.json"; qcoord busy; qitem i1 important 0 "READY: lane q"
+tick 1500; is "quiet mode off: the tick leaves the inbox alone (no wake, no stamp)" "$(nhook)/$(qn)/$([ -e "$QS" ] && echo stamp || echo none)" "0/1/none"
+jq '.quietReports = {enabled: true}' "$TMP/cfg.bak" > "$CFG/middle-management.json"
+qreset; qcoord busy; qitem i1 important 0 "READY: lane q"
+tick 600; is "on, busy, an important item 10 min old -> no wake" "$(nhook)/$(qn)" "0/1"
+[ "$(stat -c %Y "$QS" 2>/dev/null)" = $((T0 + 600)) ] && ok "...the tick stamp is written (deliver: the fallback runs)" || bad "tick stamp" $((T0 + 600)) "$(stat -c %Y "$QS" 2>&1)"
+tick 1200; is "...20 min old -> the fallback wake" "$(nhook)/$(qn)" "1/0"
+has "...a digest from the watcher" "Worker reports (quiet), 1 waiting, oldest first:" "$(hooks | tail -1 | jq -r .prompt)"
+has "...with the report" "READY: lane q" "$(hooks | tail -1 | jq -r .prompt)"
+is "...sent as the watcher, unwrapped" "$(hooks | tail -1 | jq -c '[.from, .session, (.prompt == .report)]')" '["t3-watch","",true]'
+qreset; qcoord busy; qitem s1 status 0 "only a status"
+tick 3000; is "a status item 50 min old -> never a wake (coordinator 2026-11-02)" "$(nhook)/$(qn)" "0/1"
+qreset; qcoord idle; mkdir -p "$QI"; printf '%s\n' "$T0" > "$QI/.last-wake"; qitem i2 important 100 "READY: debounced"
+tick 300; is "idle, the last wake 5 min ago -> debounced, no wake" "$(nhook)" 0
+tick 700; is "...the window has passed -> wake" "$(nhook)/$(qn)" "1/0"
+qreset; rm -f "$CFG/sessions/c.json"; qitem i3 important 0 "READY: asleep"
+OUT=$(tick 10 --dry-run); has "dry-run prints the inbox" "INBOX   scope default: 1 pending (1 important), would wake (asleep)" "$OUT"
+is "...sends nothing, keeps the item and no stamp" "$(nhook)/$(qn)/$([ -e "$QS" ] && echo stamp || echo none)" "0/1/none"
+morning; tick 10; is "the morning claim is pending -> no wake into the night coordinator" "$(nhook)/$(qn)" "0/1"
+rm -rf "$CFG/state/morning-t3"; sidecar mcp:coord
+echo 500 > "$TMP/shell.code"; tick 20
+is "the T3 API answers 500 -> the inbox tick still wakes" "$(nhook)/$(qn)" "1/0"
+qreset; rm -f "$CFG/sessions/c.json"; qitem i4 important 0 "READY: wake fails"; echo 429 > "$TMP/hook.mode"
+tick 10; tick 610; tick 1210
+is "a failing wake, three ticks -> one failures.log line (one episode)" "$(grep -c 'digest wake failed' "$CFG/state/t3-report/failures.log")" 1
+has "...saying the reports stay queued" "digest wake failed (http 429), 1 report(s) stay queued in the inbox" "$(cat "$CFG/state/t3-report/failures.log")"
+is "...the item stays" "$(qn)" 1
+rm -f "$TMP/hook.mode"; tick 1810; is "...webhook back -> delivered" "$(qn)" 0
+[ -e "$QI/.failing" ] && bad "a 202 ends the episode" "no .failing" ".failing" || ok "a 202 ends the episode"
+qreset; qitem old status -90000 "a day old" "$CFG/state/scopes/ff/t3-inbox"
+tick 0; is "a scope without sidecar: an item older than 24 h is dropped" "$(ls "$CFG/state/scopes/ff/t3-inbox" | wc -l | tr -d ' ')" 0
+has "...with an inbox.log line" "older than 24 h" "$(cat "$CFG/state/t3-report/inbox.log")"
+cp "$TMP/cfg.bak" "$CFG/middle-management.json"; rm -rf "$QI" "$QS" "$CFG/sessions/c.json"
+
 # ------------------------------------------------------------------------------------------ Z --
 echo "Z. secrets"
 ALL=$(cat "$TMP/notify.log" "$TMP/stderr.log" "$CFG/state/t3-report/"* "$CFG/state/t3-watch/"* 2>/dev/null)
@@ -410,7 +456,7 @@ lacks "no webhook secret in any output, log or state" "$SECRET" "$ALL"
 lacks "no token in any output, log or state" "$TOKEN" "$ALL"
 lacks "no [HH:MM] prefix in the scripts" "[HH:MM]" "$(cat "$SRC/t3-watch.py" "$SRC/t3-wake.sh")"
 EM=$(printf '\xe2\x80\x94')   # the em dash, spelled as bytes so this file carries none
-NEW="$SRC/t3-watch.py $SRC/t3-wake.sh $ROOT/plugins/middle-management/templates/systemd/t3-watch.service $ROOT/plugins/middle-management/templates/systemd/t3-watch.timer $0"
+NEW="$SRC/t3-watch.py $SRC/t3-wake.sh $SRC/t3-inbox.py $ROOT/plugins/middle-management/templates/systemd/t3-watch.service $ROOT/plugins/middle-management/templates/systemd/t3-watch.timer $0"
 # shellcheck disable=SC2086
 is "no em dash in the new files" "$(grep -l "$EM" $NEW 2>/dev/null)" ""
 

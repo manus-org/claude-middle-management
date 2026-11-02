@@ -4,7 +4,7 @@
 Consumers: hooks/session-role.sh (`of`, `filter`), hooks/t3-report.sh (`of`), scripts/orchestrator.sh
   (`of`), scripts/t3-wake.sh (`of`, `list`), scripts/orch-heartbeat.sh and its installed copy (`list`,
   `filter`), scripts/peer-state.py (`--scope`, sidecars, imported), scripts/open-items.py,
-  scripts/topics.py and scripts/t3-watch.py (imported), commands/middle-management-setup.md
+  scripts/topics.py, scripts/t3-watch.py and scripts/t3-inbox.py (imported), commands/middle-management-setup.md
   (`of`, step 3), tests/run.sh, tests/peer-state.sh, tests/open-items.sh, tests/heartbeat.sh,
   tests/t3-seat.sh. The shell callers run it ONLY when the config has a non-empty "scopes" array
   or "scopeMode": "per-root", so a machine without either key never starts it.

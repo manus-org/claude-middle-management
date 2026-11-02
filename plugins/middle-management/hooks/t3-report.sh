@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # middle-management plugin: Stop hook, a session's report into its T3 coordinator (plan 1.3, D0).
-# Consumers: hooks/hooks.json (Stop registration), tests/t3-report.sh, tests/morning-t3.sh (D).
-#   Reads <seat dir>/morning-t3/status (scripts/morning-t3.sh). Calls scripts/t3-wake.sh (the
-#   one sender), scripts/config-check.sh and, with scopes or scopeMode per-root, scripts/scope.py.
+# Consumers: hooks/hooks.json (Stop registration), tests/t3-report.sh, tests/morning-t3.sh (D),
+#   tests/t3-inbox.sh. Reads <seat dir>/morning-t3/status (scripts/morning-t3.sh). Calls
+#   scripts/t3-wake.sh (the one sender), with quietReports.enabled scripts/t3-inbox.py instead
+#   (deliver; inject for the coordinator's own Stop), scripts/config-check.sh and, with scopes or
+#   scopeMode per-root, scripts/scope.py.
 #
 # Every session that is not the CURRENT coordinator (a worker, or a former coordinator after a
 # takeover) sends the last text of each turn to the coordinator of its scope. Nothing happens unless:
@@ -15,6 +17,9 @@
 # the real answer. A report that is not delivered is never silent: t3-wake.sh logs it to
 # failures.log (the watcher notifies), and this hook blocks ONCE per text, never on a continuation,
 # telling the session to send it itself. The reportUrl is never read or printed here.
+# Quiet reports (README "Quiet reports", config quietReports.enabled): the report goes into the
+# scope's inbox through t3-inbox.py deliver (same exit codes), which wakes the coordinator only when
+# it sleeps or an important report waits; the coordinator's own Stop hands in what still waits.
 set -u
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -44,7 +49,13 @@ SIDE="$SDIR/orchestrator.t3.json"
 COORD=$(jq -r '.sessionId // empty' "$SIDE" 2>/dev/null)
 [ -n "$COORD" ] || exit 0
 # The coordinator reports to nobody: a text it held as a worker is stale (r1 NIT), dropped.
-[ "$COORD" = "$SID" ] && { rm -f "$CFG_DIR/state/t3-report/$SID".pending{,.sum}; exit 0; }
+if [ "$COORD" = "$SID" ]; then
+  rm -f "$CFG_DIR/state/t3-report/$SID".pending{,.sum}
+  # Quiet reports waiting in the inbox are handed in before this turn ends: one block whose reason
+  # carries them (t3-inbox.py inject; never on a continuation, so no loop; what it hands in is gone).
+  compgen -G "$SDIR/t3-inbox/*.json" >/dev/null && printf '%s' "$IN" | python3 "$S/t3-inbox.py" inject 2>/dev/null
+  exit 0
+fi
 # Morning takeover pending (README "Morning coordinator in T3 Code"): today's morning trigger started
 # a thread (morning-t3.sh status "posted", not yet "claimed"/"refused" by claim --morning), the post
 # is under 30 min old, and the sidecar still predates it, so it names the night coordinator. A session
@@ -103,6 +114,9 @@ PEND="$RDIR/$SID.pending"   # held texts; $PEND.sum = sha of the last one held
 FROM=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null \
   | jq -r --arg id "$SID" 'select(.sessionId == $id) | .name | strings' 2>/dev/null | head -1)
 
+# What makes a text a report the coordinator must act on: the interim hold below and the quiet-mode
+# class ("important" may wake, "status" never does) read this ONE pattern, matched case-insensitively.
+MARK='\b(READY|LIVE|BLOCKED|FERTIG|question)\b|Frage:|wartet auf|Close this tab\.|\?[[:space:]]*$'
 # Interim turn (F14): one of this session's sub-agents is still running, so a sub-agent completion
 # turn does not wake the coordinator with a short status. Held only when the text does not look like
 # a report (short, no READY/LIVE/blocked/FERTIG marker in any case, no question or "Frage:", no
@@ -115,7 +129,7 @@ if jq -e '[.background_tasks // [] | .[]? | select(type == "object" and .type ==
         and ((.status // "running") | test("^(completed|failed|killed|stopped|cancelled|canceled|done|error)$") | not))]
        | length > 0' <<<"$IN" >/dev/null 2>&1 \
    && [ "${#TEXT}" -le "${T3_REPORT_INTERIM_MAX:-500}" ] \
-   && ! grep -qiE '\b(READY|LIVE|BLOCKED|FERTIG|question)\b|Frage:|wartet auf|Close this tab\.|\?[[:space:]]*$' <<<"$TEXT"; then
+   && ! grep -qiE "$MARK" <<<"$TEXT"; then
   [ -n "$TEXT" ] || exit 0
   [ -f "$PEND" ] && [ "$(cat "$PEND.sum" 2>/dev/null)" = "$SUM" ] && exit 0   # same text again (whole sha)
   if [ ! -f "$PEND" ]; then
@@ -140,7 +154,12 @@ printf '%s' "$TEXT" > "$TMP"
 # Guard: the sender must end inside the hook's timeout (hooks.json: 20 s), else the hook is killed
 # before the failure line and the block below, and the lost report is silent (review r1 F1).
 GUARD=(); command -v timeout >/dev/null 2>&1 && GUARD=(timeout "${T3_REPORT_BUDGET:-15}")
-MM_SESSION_ID="$SID" MM_SCOPE_CWD="$START" "${GUARD[@]}" bash "$S/t3-wake.sh" "${FROM:-session ${SID:0:8}}" "$TMP" >/dev/null 2>&1; RC=$?
+SEND=(bash "$S/t3-wake.sh")
+if jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1; then
+  CLASS=status; grep -qiE "$MARK" <<<"$TEXT" && CLASS=important
+  SEND=(python3 "$S/t3-inbox.py" deliver "$SDIR" "$CLASS")
+fi
+MM_SESSION_ID="$SID" MM_SCOPE_CWD="$START" "${GUARD[@]}" "${SEND[@]}" "${FROM:-session ${SID:0:8}}" "$TMP" >/dev/null 2>&1; RC=$?
 rm -f "$TMP"
 [ "$RC" = 124 ] && printf '%s\t%s\t%s\tunknown\tsender timed out after %ss\n' "$(date -Is)" "${FROM:-session ${SID:0:8}}" "$SID" \
   "${T3_REPORT_BUDGET:-15}" >> "$RDIR/failures.log" 2>/dev/null

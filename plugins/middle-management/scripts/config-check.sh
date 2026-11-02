@@ -104,6 +104,11 @@ validate() {
           and (.reviewer | . == null or (type == "string" and test("\\A[A-Za-z0-9][A-Za-z0-9-]*\\z")))))
     # t3Url: the base URL of the T3 server (watcher, t3-token.sh); a plain http(s) URL, nothing else.
     and ((.t3Url // "http://x") | (type == "string" and test("\\Ahttps?://[^\\s\"]+\\z")))
+    # 0.15.0 (README "Quiet reports"): worker reports into an awake T3 coordinator without a turn each.
+    and (.quietReports | . == null or ((type == "object")
+          and ((.enabled // false) | type == "boolean")
+          and ((.fallbackMin // 20) | (type == "number" and . > 0))
+          and ((.debounceMin // 10) | (type == "number" and . > 0))))
     and ((.protectedCheckouts // []) | (type == "array") and all(
           (type == "object")
           and (.name | (type == "string") and (test("^[^[:space:]]+$")))  # a column of `wt list`

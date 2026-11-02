@@ -32,6 +32,22 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/intent-check.sh\"",
             "timeout": 10,
             "statusMessage": "middle-management: intent check"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/t3-inbox.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/t3-inbox.sh\"",
+            "timeout": 5
           }
         ]
       }

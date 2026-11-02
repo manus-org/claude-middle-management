@@ -3,8 +3,9 @@
 
 Consumers: templates/systemd/t3-watch.service (started every 10 min by t3-watch.timer; both
   installed as USER units by /middle-management-setup), tests/t3-watch.sh, by hand for
-  `--dry-run` / `--stats`. Calls t3-wake.sh, scope.py and, when it exists, topics.py (all beside
-  it). Reads <cfg>/state/t3-report/{failures.log,posts.tsv}, which t3-wake.sh writes, and
+  `--dry-run` / `--stats`. Calls t3-wake.sh, scope.py, t3-inbox.py (imported: the quiet-reports
+  tick) and, when it exists, topics.py (all beside it, copy set middle-management-t3watch). Reads
+  <cfg>/state/t3-report/{failures.log,posts.tsv}, which t3-wake.sh and t3-inbox.py write, and
   <seat dir>/morning-t3/status, which morning-t3.sh writes.
 
 Usage: t3-watch.py [--dry-run] | --stats
@@ -40,7 +41,10 @@ top-level threads of the scope's T3 project(s), the coordinator thread included:
                  after the post, and the sidecar is older than that post, the sidecar still names the
                  night coordinator, which is about to lose the seat: nothing wakes it. "limit over" and
                  "other failure" go to the user as a notify instead, the Keepalive retry is skipped.
-Plus: topics.py tick --scope <name> for every scope when topics.py exists (with or without sidecar).
+Plus: topics.py tick --scope <name> for every scope when topics.py exists (with or without sidecar),
+and with config quietReports.enabled the inbox tick of t3-inbox.py for every scope (README "Quiet
+reports": the fallback wake, a debounced wake whose window has passed, the 24-h drop; no wake while
+the morning claim is pending), also when the T3 API is down: it needs only the inbox and the webhook.
 A T3 API problem (HTTP 400 / missing keys, token rejected, server down twice in a row) -> one
 notify per kind and day, never a crash. Secrets: the token (config t3TokenFile, default
 ~/.config/t3-threads/token, refused when group/other can read it) only goes into a request header;
@@ -49,7 +53,7 @@ The T3 server: config t3Url, default http://127.0.0.1:$T3CODE_PORT (8470 when un
 Env: T3CODE_PORT, T3W_NOW (epoch, test seam), CLAUDE_CONFIG_DIR.
 Exit 0, or 1 when a notify could not be delivered (systemd's OnFailure alarm then fires).
 """
-import collections, json, os, re, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import collections, importlib.util, json, os, re, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -531,6 +535,14 @@ def main(argv):
                 for n, sdir, side in work:
                     check_scope(n, sdir, side, shell, ss)
         topics_tick(names)
+        q = CFG.get("quietReports")
+        if isinstance(q, dict) and q.get("enabled") is True:     # off: not even loaded (= before 0.15.0)
+            spec = importlib.util.spec_from_file_location("t3_inbox", os.path.join(HERE, "t3-inbox.py"))
+            inbox = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(inbox)
+            for n in names:
+                sdir = scope.info(n, CFG)[0]
+                inbox.tick(n, sdir, dry=DRY, hold=morning_pending(sdir))
     except Exception as e:      # never a crash loop: one notify per day, then exit 0
         if gstate.setdefault("api", {}).get("internal") != TODAY:
             gstate["api"]["internal"] = TODAY
