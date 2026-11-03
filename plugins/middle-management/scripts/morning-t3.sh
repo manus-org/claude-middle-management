@@ -60,7 +60,7 @@ Fix: $3"
 notify() {  # $1 = text; the contract of unit-failure-alarm.sh and morning-headless.sh
   local cmd; cmd="$(cfg '.notifyCommand // ""')"
   [ -n "$cmd" ] || return 2
-  printf '%s\n' "$1" | sh -c "$cmd" notify "$1" >/dev/null 2>&1   # output dropped: may carry a token
+  sh -c "$cmd" notify "$1" <<<"$1" >/dev/null 2>&1   # output dropped: may carry a token; <<<: see unit-failure-alarm.sh
 }
 
 command -v jq >/dev/null || fail "morning thread FAILED" "jq is not installed" "install jq"

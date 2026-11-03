@@ -29,6 +29,14 @@ reviewer launch never reached the coordinator. Now only a short interim text (at
 report marker) is held, in `state/t3-report/<sid>.pending` (0600), and sent first with the next turn
 that sends; a report goes at once. One `held.log` line and one notice per hold.
 
+**A delivered notice no longer counts as failed.** Under `pipefail`, the text piped into a
+`notifyCommand` that exits without reading stdin could kill the writer with SIGPIPE, so a delivered
+message was reported as not sent (the morning ritual then failed its run; the alarm tried the
+fallback). `unit-failure-alarm.sh`, `orch-heartbeat.sh`, `morning-headless.sh`, `morning-t3.sh` and
+`lane-reaper.sh` pass the text as a here-string; `tests/run.sh` checks that no `pipefail` script pipes
+into `sh -c "$notifyCommand"` again. Setup now offers `quietReports` (step 16) and lists it in its
+schema.
+
 Hosts: nothing to re-run. The first session start on 0.15.0 copies `t3-inbox.py` into the
 watcher's copy dir (`hooks/refresh-copies.sh`). To turn quiet reports on, add `quietReports` to
 `<config dir>/middle-management.json`, but only once every coordinator runs 0.15.0: a process

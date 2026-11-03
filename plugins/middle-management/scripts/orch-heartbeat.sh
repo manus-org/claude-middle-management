@@ -83,7 +83,7 @@ alarm() {
     log "heartbeat: no notifyCommand in $CFG_FILE - alarm NOT delivered: $text"; return 0
   fi
   # Output discarded, not journaled: a failing command may echo a URL that carries a token.
-  printf '%s\n' "$text" | sh -c "$cmd" notify "$text" >/dev/null 2>&1 || rc=$?
+  sh -c "$cmd" notify "$text" <<<"$text" >/dev/null 2>&1 || rc=$?   # <<<: see unit-failure-alarm.sh send()
   [ "$rc" -eq 0 ] || log "heartbeat: notifyCommand failed (exit $rc) - the message was: $text"
   return 0
 }

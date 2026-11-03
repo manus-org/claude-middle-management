@@ -40,6 +40,7 @@ Schema (setup adds no other key):
   "t3TokenFile": "~/.config/t3-threads/token",
   "t3Url": "http://127.0.0.1:8470",
   "onLimitCommand": "",
+  "quietReports": { "enabled": false, "fallbackMin": 20, "debounceMin": 10 },
   "userName": "user",
   "okBy": "user",
   "remindAfterHours": 2,
@@ -250,7 +251,11 @@ repositories; the user names them.
     names when the server listens elsewhere (unset key = that loopback default). `t3TokenFile`
     (default `~/.config/t3-threads/token`, mode 600) and `onLimitCommand` (optional, run once
     per usage-limit episode with the limited thread ids as arguments; output is dropped).
-    Then offer step 8.
+    Then ask about quiet reports (README, "Quiet reports"): should worker reports reach an awake
+    coordinator inside its own turn instead of one turn each, so only READY/LIVE/BLOCKED/a question
+    wakes it? Yes means `quietReports: {"enabled": true}` (`fallbackMin` 20 and `debounceMin` 10
+    only when the user wants other values); it is machine-wide, so only once every coordinator on
+    this machine runs this version. Then offer step 8.
 
 16b. **Morning coordinator in T3 Code** (README, "Morning coordinator in T3 Code"; only with T3
     Code). Ask whether a fresh coordinator thread should take over each weekday morning. Yes means:

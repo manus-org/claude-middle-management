@@ -230,7 +230,7 @@ printf '%s\n' "$LISTING" > "$LATEST"
 if [ ${#ACTIONS[@]} -gt 0 ] || [ "$CHANGED" = 1 ] || [ "$DIGEST" = 1 ]; then
   if [ "${MM_REAPER_NO_NOTIFY:-0}" = 1 ] || [ -z "$NOTIFY" ]; then
     echo "not sent (no notifyCommand, or suppressed); the message would have been:"; printf '%s\n' "$MSG"
-  elif ! printf '%s\n' "$MSG" | sh -c "$NOTIFY" notify "$MSG" >/dev/null 2>&1; then
+  elif ! sh -c "$NOTIFY" notify "$MSG" <<<"$MSG" >/dev/null 2>&1; then   # <<<: see unit-failure-alarm.sh send()
     echo "lane-reaper: notifyCommand failed" >&2; RC=1
   fi
 else
