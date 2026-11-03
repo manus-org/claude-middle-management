@@ -13,7 +13,8 @@
 #   E  races: two delivers -> one wake; an inject during a wake; two injects -> every item once
 #   F  caps: a 9000-char item is cut at 4000 and drains; the digest stays within 4000
 #   G  hooks/t3-report.sh: quiet on -> the inbox, the coordinator's Stop hands it in once; off -> as before
-#   H  hooks/t3-inbox.sh fast path, hooks.json registration
+#   H  hooks/t3-inbox.sh fast path (also: a former coordinator in the sidecar's "previous"), hooks.json
+#      registration
 #   Z  no webhook secret anywhere
 # The clock is T3W_NOW; the coordinator's registry entry points at a sleep process (live) or is gone.
 set -uo pipefail
@@ -291,6 +292,16 @@ hk() { printf '%s' "$1" | env HOME="$H" CLAUDE_CONFIG_DIR="" T3CODE_HOME="${T3-$
 OUT=$(T3="" hk "$(ev PostToolUse)"); is "no T3 thread -> silent" "$OUT/$(items)" "/1"
 OUT=$(hk "$(ev PostToolUse sid-w1)"); is "a session no sidecar names -> silent" "$OUT/$(items)" "/1"
 OUT=$(hk "$(jq -cn '{session_id:"sid-coord", hook_event_name:"PostToolUse", agent_id:"a7"}')"); is "the coordinator's sub-agent -> silent" "$OUT/$(items)" "/1"
+# a former coordinator, named only as the sidecar's "previous" holder, never starts t3-inbox.py
+cp "$ST/orchestrator.t3.json" "$TMP/side.bak"
+jq '.previous = {sessionId: "sid-old", threadId: "mcp:old", title: "Alt", reportTaskId: "t0"}' "$TMP/side.bak" > "$ST/orchestrator.t3.json"
+mkdir -p "$TMP/stubroot/scripts"; printf 'print("STARTED")\n' > "$TMP/stubroot/scripts/t3-inbox.py"
+hs() { printf '%s' "$1" | env HOME="$H" CLAUDE_CONFIG_DIR="" T3CODE_HOME="$H/.t3" CLAUDE_PLUGIN_ROOT="$TMP/stubroot" bash "$P/hooks/t3-inbox.sh" 2>&1; }
+is "the previous holder (pretty sidecar) -> t3-inbox.py not started" "$(hs "$(ev PostToolUse sid-old)")" ""
+is "...the current holder still starts it" "$(hs "$(ev PostToolUse)")" "STARTED"
+jq -c '.previous = {sessionId: "sid-old"}' "$TMP/side.bak" > "$ST/orchestrator.t3.json"
+is "the previous holder (compact sidecar) -> not started" "$(hs "$(ev PostToolUse sid-old)")" ""
+mv -f "$TMP/side.bak" "$ST/orchestrator.t3.json"
 OUT=$(hk "$(ev PostToolUse)"); has "the coordinator -> the reports" "via the hook" "$OUT"; is "...consumed" "$(items)" 0
 OUT=$(hk "$(ev PostToolUse)"); is "an empty inbox -> silent" "$OUT" ""
 J=$P/hooks/hooks.json

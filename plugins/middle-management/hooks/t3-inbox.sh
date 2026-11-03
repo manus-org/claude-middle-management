@@ -8,7 +8,9 @@
 # or no item in any scope's inbox (<config dir>/state[/scopes/*]/t3-inbox/*.json), or no inbox whose
 # sidecar names this session -> exit 0. Only the coordinator, while reports wait, starts
 # t3-inbox.py, which skips a sub-agent's tool call (agent_id), prints the reports as
-# additionalContext and deletes exactly what it printed.
+# additionalContext and deletes exactly what it printed. The sidecar's "previous" holder (written
+# last, scripts/orchestrator.sh t3-bind) is cut off before the match, so a former coordinator stays
+# on the fast path.
 # ponytail: no config-check.sh (two forks per tool call): the config dir is resolved inline, the same
 # rule. The hook input is read only once an item waits ($(cat) is one fork; read -d '' would go byte
 # by byte through a large tool response).
@@ -25,7 +27,7 @@ SID=${BASH_REMATCH[1]}
 D=""
 for f in "${F[@]}"; do
   d=${f%/t3-inbox/*}; [ "$d" = "$D" ] && continue; D=$d   # the glob is sorted: one check per dir
-  X=""; IFS= read -r -d '' X 2>/dev/null < "$d/orchestrator.t3.json"
+  X=""; IFS= read -r -d '' X 2>/dev/null < "$d/orchestrator.t3.json"; X=${X%%\"previous\"*}
   if [[ $X =~ \"sessionId\"[[:space:]]*:[[:space:]]*\"$SID\" ]]; then
     printf '%s' "$IN" | python3 "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/t3-inbox.py" inject
     exit 0
