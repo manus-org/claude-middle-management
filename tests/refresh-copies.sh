@@ -3,7 +3,8 @@
 # (scripts/copy-set.sh) and the SessionStart hook that refreshes the unit copies after an update
 # (hooks/refresh-copies.sh). Fake config dir, notifyCommand writes into a file; sends nothing real.
 # Consumers: tests/run.sh (runs it with the other matrices); by hand: bash tests/refresh-copies.sh
-#   A  manifest: every listed file exists, the setup steps use copy-set.sh, no inline cp list left
+#   A  manifest: every listed file exists, the setup steps use copy-set.sh, no inline cp list left,
+#      every sibling a t3watch script imports or runs is in its set
 #   B  copy-set.sh: unknown set refused, a fresh set installed, the poke prompt never overwritten
 #   C  the hook: stamp equal -> no-op, refresh of existing copy dirs only, full set, poke untouched,
 #      new inode (atomic mv), no .tmp left, stamp written, a second sessions finds it done
@@ -54,6 +55,17 @@ for pair in __HEARTBEAT_DIR__:middle-management-heartbeat __REAPER_DIR__:middle-
     [ "$ph" = __HEARTBEAT_DIR__ ] && [ "$f" = unit-failure-alarm.sh ] && continue   # every set carries it
     jq -e --arg s "$set" --arg f "$f" '.sets[$s] | index($f)' "$P/scripts/copy-sets.json" >/dev/null \
       && ok "$f (ExecStart of a template) is in $set" || bad "$f is in $set" "listed" "missing"
+  done
+done
+# every sibling a python script of the t3watch set imports or runs is in that set too (0.15.0 F6: the
+# installed watcher would otherwise fail its import while the repo tests pass)
+T3W=middle-management-t3watch
+for py in $(jq -r --arg s "$T3W" '.sets[$s][] | select(endswith(".py"))' "$P/scripts/copy-sets.json"); do
+  for f in $( { grep -oE '"[A-Za-z0-9_-]+\.(py|sh)"' "$P/scripts/$py" | tr -d '"'
+                grep -oE '^import [a-z_]+' "$P/scripts/$py" | sed 's/^import //; s/$/.py/'; } | sort -u); do
+    [ -f "$P/scripts/$f" ] || continue
+    jq -e --arg s "$T3W" --arg f "$f" '.sets[$s] | index($f)' "$P/scripts/copy-sets.json" >/dev/null \
+      && ok "$f (used by $py) is in $T3W" || bad "$f (used by $py) is in $T3W" listed missing
   done
 done
 for s in $(jq -r '.sets | keys[]' "$P/scripts/copy-sets.json"); do

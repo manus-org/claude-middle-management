@@ -89,7 +89,7 @@ notify() {  # $1 = text; the same contract as unit-failure-alarm.sh and the hear
   local cmd; cmd="$(cfg '.notifyCommand // ""')"
   [ -n "$cmd" ] || return 2
   # Output discarded: a failing sender may echo a URL that carries its token.
-  printf '%s\n' "$1" | sh -c "$cmd" notify "$1" >/dev/null 2>&1
+  sh -c "$cmd" notify "$1" <<<"$1" >/dev/null 2>&1   # <<<, not a pipe: see unit-failure-alarm.sh send()
 }
 
 fail() {  # $1 = cause word, $2 = what happened

@@ -1389,6 +1389,16 @@ assert_rc "S8 peer-state --scope refuses (rc 3)" 3 "$RC"
 kill "$S8B" 2>/dev/null
 
 say ""
+say "== notify under pipefail: the text goes in as a here-string, never through a pipe =="
+# A pipe into a notifyCommand that exits without reading stdin can kill the writer with SIGPIPE, and
+# under pipefail a delivered message then counts as failed (seen as a flaky morning-headless test).
+PIPED=""
+for f in "$P"/scripts/*.sh "$P"/hooks/*.sh; do
+  grep -q pipefail "$f" && grep -qE "\| *sh -c \"\\\$" "$f" && PIPED="$PIPED ${f#"$P"/}"
+done
+assert_empty "no pipefail script pipes a text into sh -c \"\$notifyCommand\"" "" "$PIPED"
+
+say ""
 say "== peer-state (tests/peer-state.sh) =="
 PS_OUT="$(bash "$ROOT/tests/peer-state.sh" 2>&1)"; PS_RC=$?
 printf '%s\n' "$PS_OUT" | grep -E '^\s+(FAIL|skip)' || true
@@ -1420,7 +1430,7 @@ TW_LINE="$(printf '%s\n' "$TW_OUT" | grep -E '^RESULT:' | tail -1)"
 say "  ${TW_LINE:-t3-watch matrix did not report}"
 [ "$TW_RC" -eq 0 ] || FAIL=$((FAIL+1))
 
-for M in t3-report t3-seat topics work-packages morning-t3 guard-canary prompt-hooks refresh-copies; do
+for M in t3-report t3-inbox t3-seat topics work-packages morning-t3 guard-canary prompt-hooks refresh-copies; do
   say ""
   say "== $M (tests/$M.sh) =="
   M_OUT="$(bash "$ROOT/tests/$M.sh" 2>&1)"; M_RC=$?

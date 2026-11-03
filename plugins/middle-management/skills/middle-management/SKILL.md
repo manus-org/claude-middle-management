@@ -384,6 +384,9 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   never printed.
 - **Worker -> coordinator:** the last text of each worker turn, delivered by the Stop hook. Tools
   first, report last. "report NOT delivered" -> send it yourself with `t3_thread_send <coordinator thread>`.
+  With `quietReports` on (README, "Quiet reports") only a READY / LIVE / blocked / question report
+  wakes the coordinator, as one digest; everything else reaches it inside its own turn as "Worker
+  reports (quiet)": the coordinator handles those in the turn it is in, never a chat reply per report.
 - **Coordinator -> worker:** tasking, questions and handover by `t3_thread_send <threadId>`
   (it wakes a sleeping or settled thread). No `t3_thread_wait` afterwards: the answer arrives by
   itself. No poke, no keep-warm, no peer message into a T3 thread.

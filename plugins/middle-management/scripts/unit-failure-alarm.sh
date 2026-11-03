@@ -52,7 +52,10 @@ CMD=$(jq -r '.notifyCommand // ""' "$CFG_FILE" 2>/dev/null || true)
 # channel (expired bot token, provider outage) still reaches a human.
 FB=$(jq -r '.notifyFallbackCommand // ""' "$CFG_FILE" 2>/dev/null || true)
 # Output discarded, not journaled: a failing command may echo a URL that carries a token.
-send() { printf '%s\n' "$2" | sh -c "$1" notify "$2" >/dev/null 2>&1; }
+# The text goes in as a here-string, not through a pipe: under pipefail a command that exits before
+# the pipe's writer ran (it does not read stdin) made the writer die of SIGPIPE, and a delivered
+# message counted as failed. A here-string is written before the command starts.
+send() { sh -c "$1" notify "$2" <<<"$2" >/dev/null 2>&1; }
 if [ -n "$CMD" ]; then
   send "$CMD" "$TEXT" && exit 0
   echo "unit-failure-alarm: notifyCommand failed for $UNIT" >&2

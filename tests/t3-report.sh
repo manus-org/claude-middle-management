@@ -38,6 +38,7 @@ hook() {  # $1 = Stop input JSON; env T3 = T3CODE_HOME (default set)
 inp() {  # $1 sid $2 text [$3 extra json fields]
   jq -cn --arg s "$1" --arg t "$2" --argjson x "${3:-{\}}" '{session_id: $s, cwd: "/tmp", last_assistant_message: $t} + $x'; }
 calls() { grep -c '^from=' "$TMP/wake.log" 2>/dev/null || echo 0; }
+last()  { awk '/^from=/{b="";next} /^--$/{next} {b=b $0 "\n"} END{printf "%s", b}' "$TMP/wake.log"; }  # body of the last send
 
 reg sess-w worker-1 "$H"; reg sess-c coord "$H"; reg sess-old old-coord "$H"
 
@@ -60,6 +61,7 @@ hook "$(inp sess-w "interim" '{"background_tasks":[{"type":"subagent","status":"
 is "a running sub-agent -> interim turn, not sent" "$(calls)" 2
 hook "$(inp sess-w "interim" '{"background_tasks":[{"type":"shell","status":"running"}]}')" >/dev/null
 is "a background shell does not hold the report" "$(calls)" 3
+is "...the held text equal to this turn's text is sent once (r1 S1)" "$(last)" "interim"
 hook "$(inp sess-w "after agents" '{"background_tasks":[{"type":"subagent","status":"completed"}]}')" >/dev/null
 is "a completed sub-agent does not hold it" "$(calls)" 4
 hook "$(inp sess-w "OK")" >/dev/null; hook "$(inp sess-w " OK
@@ -71,11 +73,58 @@ printf '%s\n' '{"type":"user","message":{"content":"go"}}' \
 hook "$(jq -cn --arg t "$TR" '{session_id:"sess-w", transcript_path:$t}')" >/dev/null
 is "transcript fallback -> sent" "$(calls)" 5; has "...its text" "from the transcript" "$(tail -3 "$TMP/wake.log")"
 
+echo "== held while a sub-agent runs (a58212a2-W6) =="
+reg sess-s worker-s "$H"; RUN='{"background_tasks":[{"type":"subagent","status":"running"}]}'; R=$CFG/state/t3-report
+N=$(calls); OUT=$(hook "$(inp sess-s "P1 READY: brief written, reviewer still running" "$RUN")")
+is "READY while a sub-agent runs -> sent at once" "$(calls)" $((N+1)); is "...silently" "$OUT" ""
+hook "$(inp sess-s "Which palette should I take?" "$RUN")" >/dev/null; is "a question while a sub-agent runs -> sent" "$(calls)" $((N+2))
+hook "$(inp sess-s "$(printf 'x%.0s' $(seq 600))" "$RUN")" >/dev/null; is "a long text while a sub-agent runs -> sent" "$(calls)" $((N+3))
+N=$(calls); OUT=$(hook "$(inp sess-s "Waiting for the reviewer." "$RUN")")
+is "short interim text while a sub-agent runs -> held" "$(calls)" "$N"
+has "...the session is told" "report held while a sub-agent runs" "$OUT"
+has "...with the coordinator thread" "t3_thread_send mcp:coord-1" "$OUT"
+has "...one held.log line" "held: sub-agent running · sess-s · " "$(cat "$R/held.log" 2>/dev/null)"
+lacks "...and no failures.log line (no 'report lost' notify)" "held: sub-agent" "$(cat "$R/failures.log" 2>/dev/null)"
+[ "$(stat -c %a "$R/sess-s.pending" 2>/dev/null)" = 600 ] && ok "...kept in <sid>.pending (0600)" || bad "pending 0600" 600 "$(stat -c %a "$R/sess-s.pending" 2>&1)"
+OUT=$(hook "$(inp sess-s "Inventory is back, reviewer still on it." "$RUN")")
+is "a second interim text -> held too" "$(calls)" "$N"; is "...told once per hold, not per turn" "$OUT" ""
+is "...still one held.log line" "$(grep -c 'sess-s' "$R/held.log")" 1
+hook "$(inp sess-s "OK")" >/dev/null
+is "next Stop (agents done, text only OK) -> the held text is sent" "$(calls)" $((N+1))
+has "...the first held text" "Waiting for the reviewer." "$(tail -4 "$TMP/wake.log")"
+has "...and the second" "Inventory is back, reviewer still on it." "$(tail -4 "$TMP/wake.log")"
+[ -f "$R/sess-s.pending" ] && bad "pending cleared" "no file" "file" || ok "...pending cleared"
+hook "$(inp sess-s "Waiting again." "$RUN")" >/dev/null; N=$(calls)
+hook "$(inp sess-s "LIVE: lane landed" "$RUN")" >/dev/null
+is "a report while agents still run flushes the held text with it" "$(calls)" $((N+1))
+has "...held text first, then the report" "Waiting again.
+
+LIVE: lane landed" "$(tail -4 "$TMP/wake.log")"
+N=$(calls); hook "$(inp sess-s "Ready: lane done" "$RUN")" >/dev/null
+is "lower-case 'Ready:' while a sub-agent runs -> sent (r1 S3)" "$(calls)" $((N+1))
+hook "$(inp sess-s "FERTIG: Brief steht. Frage: welche Palette" "$RUN")" >/dev/null
+is "German 'FERTIG ... Frage:' while a sub-agent runs -> sent" "$(calls)" $((N+2))
+hook "$(inp sess-s "Reviewer still waiting." "$RUN")" >/dev/null; hook "$(inp sess-s "waiting." "$RUN")" >/dev/null
+hook "$(inp sess-s "waiting." "$RUN")" >/dev/null; hook "$(inp sess-s "OK")" >/dev/null
+is "a held text that ends the earlier one is kept, a repeat is not (r1 S2)" "$(last)" "Reviewer still waiting.
+
+waiting."
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Transcript interim."}]}}' > "$TR"
+hook "$(jq -cn --arg t "$TR" --argjson r "$RUN" '{session_id:"sess-s", transcript_path:$t} + $r')" >/dev/null; N=$(calls)
+hook "$(jq -cn --arg t "$TR" '{session_id:"sess-s", transcript_path:$t}')" >/dev/null
+is "transcript fallback: held text = this turn's text -> one send (r1 S1)" "$(calls)" $((N+1)); is "...the text once" "$(last)" "Transcript interim."
+printf 'old held text' > "$R/sess-s.pending"; touch -d '25 hours ago' "$R/sess-s.pending"; N=$(calls)
+hook "$(inp sess-s "OK")" >/dev/null; is "a pending text older than 24 h is dropped, not sent" "$(calls)" "$N"
+[ -f "$R/sess-s.pending" ] && bad "stale pending removed" "no file" "file" || ok "...and removed"
+printf 'held as a worker' > "$R/sess-c.pending"; hook "$(inp sess-c "coordinator text")" >/dev/null
+[ -f "$R/sess-c.pending" ] && bad "coordinator drops its pending" "no file" "file" || ok "the coordinator drops a text it held as a worker"
+is "...and sends nothing" "$(calls)" "$N"
+
 echo "== former coordinator =="
 side "$CFG/state" sess-c; jq '.previous = {sessionId:"sess-old", threadId:"mcp:old"}' "$CFG/state/orchestrator.t3.json" > "$TMP/x" \
   && cat "$TMP/x" > "$CFG/state/orchestrator.t3.json"
-hook "$(inp sess-old "wrap of the old coordinator")" >/dev/null
-is "a former coordinator reports into its successor" "$(calls)" 6
+N=$(calls); hook "$(inp sess-old "wrap of the old coordinator")" >/dev/null
+is "a former coordinator reports into its successor" "$(calls)" $((N+1))
 
 echo "== not delivered =="
 echo 4 > "$TMP/wake.rc"
