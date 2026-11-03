@@ -41,8 +41,15 @@ are tested and reviewed. Lanes should not each decide this on their own.
    the brief allows them. Projects can also serialise full suites on one machine with a file lock
    in their own test runner. That part belongs in the project, not in the plugin.
 
+## Decided by the maintainer
+
+- Pursue it as a plan for a later version. A project without a plan keeps today's default
+  (point 3).
+- The plan lives on the board, not in a separate config.
+- A project's plan may override a global "review every deliverable" rule in CLAUDE.md, but only
+  where the project explicitly has a plan. The maintainer makes that change in their own private
+  settings, not in this plugin.
+
 ## Open for the maintainer
 
-- Where the plan lives: the board, or a small config the coordinator writes.
 - Whether the review-loop skill reads the brief's `Review:` block itself, or only documents it.
-- How this fits the global "review every deliverable" habit many users have in their own CLAUDE.md.
