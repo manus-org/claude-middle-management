@@ -7,8 +7,9 @@
 # denied until `pr-gate.md` in the folder of the --body-file carries `Branch: <the head branch>`,
 # no unticked box, and at least as many ticked boxes as templates/pr-gate.md has.
 # Body file: `--body-file X`, `--body-file=X`, `-F X`; `~/` is expanded, a relative path is
-# resolved against the base folder. `-` (stdin) or a path with a `$` in it is denied: the gate
-# needs a literal file to look beside.
+# resolved against the base folder (after a `cd` the gate cannot follow it is denied with "give an
+# absolute path"). `-` (stdin) or a path with a `$` in it is denied: the gate needs a literal file
+# to look beside.
 # Base folder: the last `cd <literal path>` earlier in the same command, else the tool call's cwd.
 # Head branch: --head/-H, else `git -C <base folder> branch --show-current`; still unknown -> denied
 # with "pass --head <branch>".
@@ -123,7 +124,10 @@ while IFS=$'\003' read -r DIR SEG; do
   case "$DIR" in "") BASE="$CWD" ;; *'$'*) BASE="" ;; "~/"*) BASE="$HOME/${DIR#\~/}" ;; /*) BASE="$DIR" ;; *) BASE="$CWD/$DIR" ;; esac
   [ -n "$BODY" ] || deny "gh pr create without --body-file: the gate looks for pr-gate.md beside the body file."
   case "$BODY" in -|*'$'*) deny "the body file is '$BODY': write the body to a literal path in your lane folder." ;; esac
-  case "$BODY" in "~/"*) BODY="$HOME/${BODY#\~/}" ;; /*) ;; *) BODY="$BASE/$BODY" ;; esac
+  case "$BODY" in "~/"*) BODY="$HOME/${BODY#\~/}" ;; /*) ;;
+    *) [ -n "$BASE" ] || deny "the body file '$BODY' is relative to a cd the gate cannot follow: give --body-file an absolute path and pass --head <branch>."
+       BODY="$BASE/$BODY" ;;
+  esac
   GATE="$(dirname "$BODY")/pr-gate.md"
   [ -f "$GATE" ] || deny "no checklist at $GATE."
   [ -n "$HEAD" ] || [ -z "$BASE" ] || HEAD="$(git -C "$BASE" branch --show-current 2>/dev/null)"

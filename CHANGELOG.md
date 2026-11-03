@@ -32,7 +32,8 @@ validated by `config-check.sh`, setup step 12b). With it on, `gh pr create` in c
 denied until `pr-gate.md` in the folder of the `--body-file` names the head branch and has every box
 ticked; `-` or a `$VAR` body path is denied. The head branch comes from `--head`, else from a
 `cd <path>` earlier in the same command, else from the tool call's cwd; when none gives one, the
-denial says to pass `--head`. `MM_PR_GATE=off` overrides one PR on the user's word, as an assignment
+denial says to pass `--head`, and a relative body path after a `cd` the gate cannot follow is denied
+with "give an absolute path". `MM_PR_GATE=off` overrides one PR on the user's word, as an assignment
 directly in front of that `gh pr create` or in the hook's environment; a quoted mention, such as a
 commit message or a title, is not matched. Without jq, awk or a valid config the hook stays out of
 the way. Known bypasses (`gh api`, a script, `bash -lc`, a `<<` inside a quoted string) are listed
