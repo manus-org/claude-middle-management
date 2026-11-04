@@ -57,7 +57,8 @@ below, the output shape, and these rules verbatim:
 > last. Refute by default: before you report a finding, verify it yourself against the code or
 > the doc. A finding you cannot ground in `file:line` or a quoted line is dropped, not reported
 > as "probably". Something you cannot settle from the repo is an OPEN QUESTION that names what
-> would settle it.
+> would settle it. If the brief points to the builder's deviation list, read it only after your own
+> walk is written to the report file, then check each deviation.
 > Report file: <scratch dir>/review-<deliverable>-r<N>.md
 > Write that file first (a title and your packages), append each result at once, and return at
 > most 15 lines: the verdict line and one line per finding.
@@ -67,7 +68,14 @@ below, the output shape, and these rules verbatim:
 work-packages gate (`hooks/require-work-packages.sh`) looks for, and it refuses an Agent prompt
 without one. The report file is the record; your context gets the 15 lines.
 
-**Lenses for a plan, concept or handoff** (the ten lenses of the completeness gate, verbatim).
+**No leading prompts.** The brief states the acceptance criteria and the files, never the verdict you expect.
+"Confirm that X is fine", "check it is idempotent with a late post" or the builder's own claims hand the reviewer
+the answer, and it confirms them. Ask what happens instead:
+- leading: "Check that a late browser post is idempotent (same requestId)."
+- open: "Two writers can end call C: the deadline job and the browser post. Walk both orders. What does each caller see?"
+
+**Lenses for a plan, concept or handoff** (the twelve lenses of the completeness gate,
+verbatim).
 The reviewer answers **every** lens, each ending in a finding or in `covered — <plan section>`.
 A lens left silent is an unfinished review.
 
@@ -92,10 +100,21 @@ A lens left silent is an unfinished review.
    review, a contract change, a migration — named in the plan, or discovered later?
 10. **Named out-of-scope.** Everything deliberately excluded is stated in the plan with a reason.
     Implicit exclusion is the defect this whole gate exists for.
+11. **Maintainer.** Would the repo's maintainer merge this? For every new file, job, public method, export,
+    published field and config key: does this change need it at all, and what is the smaller version? Name what
+    can be removed. Is anything under a standing maintainer rule (an API freeze, a published-surface policy) the
+    plan has not quoted? A piece added "for completeness" or for a case that practically never happens is a finding.
+    From round 2 on: what did the last round of fixes add, and for how likely a case?
+12. **Async paths.** For every key two writers can race on (a request id, a call id, a job): what does the losing
+    writer's caller see? A replayed or re-run item: how old can it be, and what does running it then do? A job
+    retry after a partial commit: duplicates? Every timeout: is it per call, and does the slowest real caller fit?
+    Each path named gets a test before the PR, or a written reason why not.
 
 **Lenses for a result.** Every acceptance criterion with its evidence (a test that ran, a link,
 a screenshot path); tests claimed but not run; callers of changed code the diff did not touch;
-the failure path; a claim in the report the diff does not support; scope cut silently.
+the failure path; a claim in the report the diff does not support; scope cut silently; lens 11
+(maintainer) on the diff; lens 12 (async paths) against the tests that exist. A diff bound for a
+pull request also gets the repo-rules walk of step 7.
 
 **Output shape**, per finding:
 
@@ -125,7 +144,8 @@ Each finding leaves this step with one verdict:
 | REFUTED | dropped, with the evidence that killed it — it never reaches the human |
 | OPEN QUESTION | ungroundable from the repo; names exactly what would settle it |
 
-Findings that survive get fixed — in the plan, or in the code if that is the task. An open
+Findings that survive get fixed — in the plan, or in the code if that is the task. Every confirmed
+finding is fixed or decided by your user; none goes to the maintainer as "if you prefer". An open
 question goes to whoever can answer it; it does not block the next round. Handing an unverified
 reviewer dump to the human is the failure this step exists to prevent.
 
@@ -167,3 +187,19 @@ reviewer dump: confirmed findings with evidence, what was fixed, what stays open
 rounds it took, the last reviewer's model and verdict. Refuted claims are named as refuted: they
 are the proof that the verification step ran. In one line, for a report or a wrap
 recap: `Review loop: 2 rounds, last verdict CLEAN (Opus 5.5, xhigh).`
+
+## Step 7: before the pull request
+
+A diff bound for a pull request gets one more fresh reviewer once the loop ended clean: the
+**repo-rules walk**. It runs under the step-3 rules and gets only the diff and every `AGENTS.md`
+above a touched file (the repo root plus each touched app or package). It returns one row per
+applicable rule: `followed`, or `broken <file:line>`. The PR opens at zero `broken`: fix, then walk
+again with a new reviewer.
+
+Then, in the lane folder that holds the PR body:
+- the body lists under `## Details` the rules walked and every new public method, export and
+  published field;
+- `pr-gate.md` starts as a copy of `${CLAUDE_PLUGIN_ROOT}/templates/pr-gate.md`, its `Branch:` line
+  names the PR's head branch, and each box is ticked only when it is true;
+- the PR opens with `gh pr create --body-file <lane folder>/pr-body.md`. With `prGate: true` the PR
+  gate hook (`hooks/require-pr-gate.sh`) holds that command until the checklist is complete.
