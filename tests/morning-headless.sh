@@ -198,6 +198,8 @@ OUT="$(STUB_RUN=noreport run)"; RC=$?
 assert_rc "a run that writes no report -> exit 1" 1 "$RC"
 assert_has "...says so" "No morning report today: the run ended without a day plan" "$(CAUSEF)"
 assert_has "...and names the permission knob (r1 m6)" "MM_MORNING_PERMISSION_MODE" "$(CAUSEF)"
+assert_has "...its own action keeps the rerun command" "$(printf 'in the unit, then:\nsystemctl --user start orch-morning-ritual.service')" "$(CAUSEF)"
+assert_lacks "...never the journal command it did not ask for" "journalctl" "$(CAUSEF)"
 setup; jq 'del(.notifyCommand)' "$C/middle-management.json" > "$C/j" && mv "$C/j" "$C/middle-management.json"
 OUT="$(run)"; RC=$?
 assert_rc "no notifyCommand -> exit 1 before any model run" 1 "$RC"
@@ -240,6 +242,10 @@ assert_has "\"OAuth token has expired\" -> 401" "the login was refused" "$(CAUSE
 setup; OUT="$(STUB_PRIMARY=weird run)"
 assert_has "an unknown error carries the CLI's own first line" "other: Something unexpected happened" "$(CAUSEF)"
 assert_has "...under a short headline, not a sentence" "🔴 No morning report today: the quick check before the run gave an answer it does not know" "$(CAUSEF)"
+assert_has "...with no action of its own: the journal" "$(printf 'See what happened:\njournalctl --user -u orch-morning-ritual.service -n 50')" "$(CAUSEF)"
+setup; OUT="$(STUB_PRIMARY=weird run MM_MORNING_FALLBACK_ENV="$C/no-such-file")"
+assert_has "an unknown probe error with its own action keeps the rerun command" "$(printf '(mode 600), then:\nsystemctl --user start orch-morning-ritual.service')" "$(CAUSEF)"
+assert_lacks "...never the journal command" "journalctl" "$(CAUSEF)"
 # m3: the probe tests the run's model
 setup; OUT="$(run MM_MORNING_MODEL=sonnet)"
 assert_has "the probe uses MM_MORNING_MODEL" "--model sonnet" "$(cat "$STUB_LOG.probe-args")"

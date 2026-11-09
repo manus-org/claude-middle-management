@@ -94,7 +94,8 @@ notify() {  # $1 = text; the same contract as unit-failure-alarm.sh and the hear
 
 fail() {  # $1 = cause word, $2 = what happened (a sentence; for `other` the headline itself),
           # $3 = detail (raw, one line, optional), $4 = what to do (optional; ends with ":" before
-          # the command) and $5 = the command (optional, default the rerun)
+          # the command) and $5 = the command (optional, default the rerun). The journal command
+          # is the default only when no $4 is given: a caller's own action keeps its rerun.
   local cause="$1" head="" do="${4:-}" cmd="${5:-$RERUN}" what="$2" still="Your sessions are not affected."
   local log="journalctl --user -u ${UNIT:-orch-morning-ritual.service} -n 50"
   # A probe that does not answer is what a rate-limited login looks like (the CLI retries its 429
@@ -111,12 +112,12 @@ Once the limit has reset, start it again:"}; fi ;;
              [ -n "$FALLBACK" ] && do=${do:-"Log in again as this user (claude, then /login), or renew the credential in the second account file, then:"}
              do=${do:-"Log in again as this user (claude, then /login), then:"} ;;
     timeout) head="the run took longer than $TMO_MIN min"
-             do=${do:-If it is only slow, raise MM_MORNING_TIMEOUT_MIN in the unit (now $TMO_MIN). See what it did:}; cmd=${5:-$log} ;;
+             [ -n "${4:-}" ] || { do="If it is only slow, raise MM_MORNING_TIMEOUT_MIN in the unit (now $TMO_MIN). See what it did:"; cmd=${5:-$log}; } ;;
     budget)  head="the run hit its spending cap"
              do=${do:-Raise MM_MORNING_MAX_BUDGET_USD in the unit (now $BUDGET), then:} ;;
     check)   head="the quick check before the run gave an answer it does not know"   # a probe's `other`
-             do=${do:-See what happened:}; cmd=${5:-$log} ;;
-    *)       head=$what; what=""; do=${do:-See what happened:}; cmd=${5:-$log} ;;
+             [ -n "${4:-}" ] || { do="See what happened:"; cmd=${5:-$log}; } ;;
+    *)       head=$what; what=""; [ -n "${4:-}" ] || { do="See what happened:"; cmd=${5:-$log}; } ;;
   esac
   local text="🔴 No morning report today: $head
 

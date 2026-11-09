@@ -110,7 +110,7 @@ if [ "${1:-}" = --check ]; then
   [ -z "$MISSING" ] && { echo "morning-t3 --check: claimed and ritual stamped today"; exit 0; }
   if [ "$SD" = "$TODAY" ]; then
     case "$SS" in
-      posted)  TRIG="The morning start sent its request, but no thread took the seat." ;;
+      posted)  TRIG="The morning start sent its request, but the morning thread did not take the seat." ;;
       waiting) TRIG="The morning start was waiting for the usage limit, but it no longer runs." ;;
       failed)  TRIG="The morning start failed (its own alarm said why)." ;;
       refused) TRIG="The morning thread's takeover was refused." ;;
