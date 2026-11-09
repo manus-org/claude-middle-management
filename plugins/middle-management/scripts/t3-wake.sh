@@ -2,7 +2,8 @@
 # middle-management plugin: the one sender into the current coordinator's T3 thread (plan 1.1, 1.3, 1.8).
 # Consumers: hooks/t3-report.sh (a worker's turn end), scripts/t3-watch.py (the Keepalive retry and
 #   the named action reports), scripts/t3-inbox.py (the quiet-mode digest and --thread),
-#   pathfinder's serve.py submit push (outside the plugin), tests/t3-watch.sh, tests/t3-inbox.sh.
+#   pathfinder's serve.py submit push (outside the plugin), a team's inbound phone poller (outside
+#   the plugin, MM_SESSION_ID=""), tests/t3-watch.sh, tests/t3-inbox.sh.
 #   Nothing else may POST to the coordinator's webhook.
 #
 # Usage: t3-wake.sh <from> <file-with-text>
