@@ -331,6 +331,11 @@ echo 400 > "$TMP/shell.code"
 tick 0; RC=$?; has "400 -> T3 API changed" "⚠️ T3 watcher paused: it no longer understands T3 Code" "$(notes)"; is "...exit 0, no crash" "$RC" 0
 has "...says what still works" "Lost reports and topic reminders still come through." "$(notes)"
 tick 600; is "once per day" "$(nnote)" 1
+lacks "...the first notice has no 'Still'" "Still so since" "$(notes)"
+tick 86400; is "the next day it repeats" "$(nnote)" 2
+has "...saying since when" "Still so since yesterday $(date -d @"$T0" +%H:%M) (this repeats once a day)." "$(notes)"
+rm -f "$TMP/shell.code"; tick 87000; echo 400 > "$TMP/shell.code"; tick 172800
+is "...a good answer in between: the next notice is a first one again" "$(nnote)/$(grep -c 'Still so since' "$TMP/notify.log")" "3/1"
 reset; python3 -c 'import json; json.dump({"threads":[{"id":"x"}],"projects":[]}, open("'"$TMP"'/shell.json","w"))'
 tick 0; has "missing keys -> T3 API changed" "lacks keys" "$(notes)"
 reset; shell "[$COORD_OK]"; chmod 644 "$TMP/token"

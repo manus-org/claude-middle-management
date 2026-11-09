@@ -213,9 +213,16 @@ def api_problem(gstate, kind, headline, action, detail):
     T3 API, as main() does it: report_lost, the topics tick and the inbox tick."""
     if gstate.setdefault("api", {}).get(kind) != TODAY:
         gstate["api"][kind] = TODAY
-        notify("all", "⚠️ T3 watcher paused: " + headline, [
+        notify("all", "⚠️ T3 watcher paused: " + headline, still(gstate, kind) + [
             "Until it is fixed, you get no notices about usage limits or waiting, stuck or failed sessions.",
             "Lost reports and topic reminders still come through.", action, "Detail: " + detail])
+
+
+def still(gstate, kind):
+    """The daily repeat of a problem that lasts names its first notice; gstate["since"][kind] is
+    cleared when it is gone (fetch_shell's good answer, a tick without an internal error)."""
+    since = gstate.setdefault("since", {}).setdefault(kind, NOW)
+    return ["Still so since %s (this repeats once a day)." % when(since)] if since < NOW else []
 
 
 T3_NEWER = "T3 Code was probably updated: update this plugin, or tell its maintainer."
@@ -273,6 +280,7 @@ def fetch_shell(gstate):
         api_problem(gstate, "api-changed", "it no longer understands T3 Code", T3_NEWER,
                     "the thread list lacks keys the watcher reads")
         return None
+    gstate["since"] = {k: v for k, v in gstate.get("since", {}).items() if k == "internal"}  # the API is fine again
     return body
 
 
@@ -643,10 +651,11 @@ def main(argv):
             for n in names:
                 sdir = scope.info(n, CFG)[0]
                 inbox.tick(n, sdir, dry=DRY, hold=morning_pending(sdir))
+        gstate.get("since", {}).pop("internal", None)    # a whole tick without an internal error
     except Exception as e:      # never a crash loop: one notify per day, then exit 0
         if gstate.setdefault("api", {}).get("internal") != TODAY:
             gstate["api"]["internal"] = TODAY
-            notify("all", "⚠️ T3 watcher hit an internal error", [
+            notify("all", "⚠️ T3 watcher hit an internal error", still(gstate, "internal") + [
                 "This check stopped at the error; some notices may be missing until it is fixed.",
                 "It runs again every 10 min and tells you at most once a day.",
                 "To see why: journalctl --user -u t3-watch.service",
