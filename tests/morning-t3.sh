@@ -134,7 +134,7 @@ is "...one POST, to the relay" "$(grep -o '^/[a-z]*/' "$TMP/hook.log" | tr '\n' 
 setup '{"morningTakeover":{"allowed":false}}'
 OUT=$(trig); RC=$?; ALL="$ALL$OUT"
 is "no takeover word -> exit 1" "$RC" 1
-has "...cause says so" "no takeover word" "$(cause orch-morning-t3.service)"
+has "...cause says so" "No morning coordinator today: the takeover is not allowed in the config" "$(cause orch-morning-t3.service)"
 [ -e "$TMP/probe.log" ] || [ -e "$TMP/hook.log" ] && bad "...no probe, no POST" none "$(cat "$TMP/probe.log" "$TMP/hook.log" 2>/dev/null)" || ok "...no probe, no POST"
 # failed POST -> cause file, exit 1, and the alarm sends that cause
 setup; echo 500 > "$TMP/hook.mode"
@@ -143,23 +143,23 @@ is "failed POST (HTTP 500) -> exit 1" "$RC" 1
 has "...cause names the HTTP code" "answered HTTP 500 via the configured URL (expected 202)" "$(cause orch-morning-t3.service)"
 is "...status failed" "$(status)" failed
 env PATH="$BIN:$PATH" CLAUDE_CONFIG_DIR="$C" bash "$S/unit-failure-alarm.sh" orch-morning-t3.service >/dev/null 2>&1
-has "...the OnFailure alarm sends that cause" "morning thread NOT started" "$(notes)"
+has "...the OnFailure alarm sends that cause" "T3 did not start the morning thread" "$(notes)"
 lacks "...and no secret" "$SECRET" "$(notes)"
 # limit wait: limited, then free -> one wait notice, one free notice, then the POST
 setup; printf 'limit\nlimit\nok\n' > "$TMP/probe.plan"
 OUT=$(trig MM_MORNING_WAIT_UNTIL=23:59); RC=$?; ALL="$ALL$OUT"
 is "limit wait then free -> exit 0" "$RC" 0
 is "...three probes" "$(cat "$TMP/probe.n")" 3
-is "...one wait notice" "$(notes | grep -c 'morning thread waits')" 1
+is "...one wait notice" "$(notes | grep -c 'Usage limit: the morning coordinator waits')" 1
 has "...names the deadline" "until 23:59" "$(notes)"
-is "...one free notice" "$(notes | grep -c 'account free again')" 1
+is "...one free notice" "$(notes | grep -c 'Limit over at [0-9:]*: starting the morning coordinator')" 1
 is "...posted once" "$(grep -c "^/api/hooks/" "$TMP/hook.log")" 1
 is "...status posted" "$(status)" posted
 # limited at the deadline -> cancelled, no POST, exit 0 (its own notice went out)
 setup; echo limit > "$TMP/probe.plan"
 OUT=$(trig MM_MORNING_WAIT_UNTIL=00:00); RC=$?; ALL="$ALL$OUT"
 is "limited past the deadline -> exit 0" "$RC" 0
-has "...cancel notice" "morning thread cancelled today" "$(notes)"
+has "...cancel notice" "No morning coordinator today: the account is still at its usage limit at 00:00" "$(notes)"
 has "...the hint carries a later deadline" "MM_MORNING_WAIT_UNTIL=<HH:MM> bash" "$(notes)"
 [ -e "$TMP/hook.log" ] && bad "...no POST" none "$(cat "$TMP/hook.log")" || ok "...no POST"
 is "...status cancelled" "$(status)" cancelled
@@ -170,7 +170,7 @@ OUT=$(trig MM_MORNING_WAIT_UNTIL=00:00); is "cancel notice not sent -> exit 1" "
 setup; echo sess-night > "$C/state/orchestrator"; printf 'limit\nseat\n' > "$TMP/probe.plan"
 OUT=$(trig MM_MORNING_WAIT_UNTIL=23:59); RC=$?; ALL="$ALL$OUT"
 is "seat changed hands during the wait -> exit 0" "$RC" 0
-has "...notice says so" "seat changed hands while it waited" "$(notes)"
+has "...notice says so" "another session took the seat while it waited" "$(notes)"
 [ -e "$TMP/hook.log" ] && bad "...no POST" none "$(cat "$TMP/hook.log")" || ok "...no POST"
 # unclear probe -> go on
 setup; echo weird > "$TMP/probe.plan"
@@ -187,14 +187,14 @@ echo "== B: the watchdog =="
 setup
 OUT=$(check); RC=$?
 is "nothing today -> exit 1" "$RC" 1
-has "...no claim" "no coordinator claimed the seat today" "$(cause orch-morning-watchdog.service)"
-has "...no ritual" "no morning ritual was stamped today" "$(cause orch-morning-watchdog.service)"
-has "...the trigger did not run" "the trigger did not run today" "$(cause orch-morning-watchdog.service)"
+has "...no claim" "Morning check: no coordinator has taken the seat today" "$(cause orch-morning-watchdog.service)"
+has "...no ritual" "the morning ritual has not run today" "$(cause orch-morning-watchdog.service)"
+has "...the trigger did not run" "The morning start did not run today." "$(cause orch-morning-watchdog.service)"
 setup; echo sess-m > "$C/state/orchestrator"; mkdir -p "$C/state/morning-ritual"; date +%s > "$C/state/morning-ritual/window"
 OUT=$(check); is "claimed + stamped today -> exit 0" "$?" 0; is "...no cause file" "$(cause orch-morning-watchdog.service)" ""
 touch -d "yesterday 12:00" "$C/state/orchestrator"
 OUT=$(check); is "stamped but the seat not claimed today -> exit 1" "$?" 1
-lacks "...only the claim is missing" "no morning ritual" "$(cause orch-morning-watchdog.service)"
+lacks "...only the claim is missing" "morning ritual has not run" "$(cause orch-morning-watchdog.service)"
 setup; mkdir -p "$C/state/morning-t3"; printf '%s\tcancelled\t%s\t1\n' "$(date +%F)" "$(date +%s)" > "$C/state/morning-t3/status"
 OUT=$(check); is "the trigger cancelled itself today -> quiet" "$?" 0
 sleep 60 & WP=$!
@@ -202,7 +202,7 @@ printf '%s\twaiting\t%s\t%s\n' "$(date +%F)" "$(date +%s)" "$WP" > "$C/state/mor
 OUT=$(check); is "the trigger still waits (pid alive) -> quiet" "$?" 0
 kill "$WP" 2>/dev/null; wait "$WP" 2>/dev/null
 OUT=$(check); is "waiting, but the pid is gone -> alarm" "$?" 1
-has "...names the trigger's state" "the trigger's state today: waiting" "$(cause orch-morning-watchdog.service)"
+has "...names the trigger's state" "The morning start was waiting for the usage limit, but it no longer runs." "$(cause orch-morning-watchdog.service)"
 
 echo "== C: the alarm fallback route =="
 ufa() { env PATH="$BIN:$PATH" CLAUDE_CONFIG_DIR="$C" UFA_LATCH_DIR="$C/latch-$RANDOM" bash "$S/unit-failure-alarm.sh" x.service 2>&1; }
@@ -210,11 +210,11 @@ FB=$TMP/fb; FBCMD=$(jq -n --arg f "$FB" '"printf \"%s\\n\" \"$1\" >> " + $f')
 fbcfg() { rm -f "$FB"; setup "{$1\"notifyFallbackCommand\":$FBCMD}"; }
 fbcfg '"notifyCommand":"exit 7",'
 OUT=$(ufa); is "main fails, fallback delivers -> exit 0" "$?" 0
-has "...the fallback got the alarm" "x.service FAILED" "$(cat "$FB" 2>/dev/null)"
-has "...marked as the fallback route" "[fallback route" "$(cat "$FB" 2>/dev/null)"
+has "...the fallback got the alarm" 'journalctl --user -u x.service -n 50' "$(cat "$FB" 2>/dev/null)"
+has "...marked as the fallback route" "Sent the backup way: the usual message channel failed" "$(cat "$FB" 2>/dev/null)"
 has "...journal says so" "delivered through notifyFallbackCommand" "$OUT"
 rm -f "$FB"; setup "{\"notifyCommand\":null,\"notifyFallbackCommand\":$FBCMD}"
-OUT=$(ufa); is "no main route, fallback set -> exit 0" "$?" 0; has "...delivered" "x.service FAILED" "$(cat "$FB" 2>/dev/null)"
+OUT=$(ufa); is "no main route, fallback set -> exit 0" "$?" 0; has "...delivered" 'journalctl --user -u x.service -n 50' "$(cat "$FB" 2>/dev/null)"
 fbcfg ''
 OUT=$(ufa); is "main works -> exit 0" "$?" 0; [ -e "$FB" ] && bad "...fallback not used" none "$(cat "$FB")" || ok "...fallback not used"
 setup '{"notifyCommand":"exit 7","notifyFallbackCommand":"exit 8"}'

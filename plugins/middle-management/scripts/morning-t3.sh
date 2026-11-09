@@ -40,7 +40,6 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CFG_DIR="$(bash "$HERE/config-check.sh" dir)"
 CFG_FILE="$(bash "$HERE/config-check.sh" file)"
 cfg() { jq -r "$1" "$CFG_FILE" 2>/dev/null; }
-HOST="$(hostname -s 2>/dev/null || echo host)"
 UNIT="${MM_MORNING_UNIT:-}"
 CAUSE=""
 [ -n "$UNIT" ] && CAUSE="$CFG_DIR/state/unit-failure-alarm/$(printf '%s' "$UNIT" | tr -c 'A-Za-z0-9._-' '_').cause"
@@ -48,10 +47,18 @@ RERUN="systemctl --user start orch-morning-t3.service"
 LATE="MM_MORNING_WAIT_UNTIL=<HH:MM> bash $HERE/morning-t3.sh"   # a manual run with a later deadline
 TODAY="$(date +%F)"
 
-fail() {  # $1 = headline, $2 = cause, $3 = fix
-  local text="[$HOST] $1${UNIT:+ ($UNIT)}
-Cause: $2
-Fix: $3"
+fail() {  # $1 = headline (after "No morning coordinator today: "), $2 = what to do (ends with ":"
+          # before a command), $3 = the command (optional), $4 = detail (raw, one line, optional).
+          # The watchdog passes its own full headline and lines (CHECK set). Written for a phone:
+          # emoji + headline, a blank line, one fact per line, the command last, at most one Detail.
+  local head="🔴 No morning coordinator today: $1" body="Nothing else changed: whoever holds the coordinator seat keeps it.
+$2"
+  [ -n "${CHECK:-}" ] && { head="🔴 $1"; body=$2; }
+  local text="$head
+
+$body${3:+
+$3}${4:+
+Detail: $4}"
   printf '%s\n' "$text" >&2
   if [ -n "$CAUSE" ]; then mkdir -p "$(dirname "$CAUSE")" && printf '%s\n' "$text" > "$CAUSE"; fi
   [ -n "${STATUS:-}" ] && [ -z "${CHECK:-}" ] && setstatus failed
@@ -63,7 +70,7 @@ notify() {  # $1 = text; the contract of unit-failure-alarm.sh and morning-headl
   sh -c "$cmd" notify "$1" <<<"$1" >/dev/null 2>&1   # output dropped: may carry a token; <<<: see unit-failure-alarm.sh
 }
 
-command -v jq >/dev/null || fail "morning thread FAILED" "jq is not installed" "install jq"
+command -v jq >/dev/null || fail "jq is not installed" "Install jq, then start it again:" "$RERUN"
 
 # The seat this chain serves: the default seat, or with scopes the one of morningRoot (the folder of
 # the T3 project the morning task runs in). Resolved exactly as orchestrator.sh resolves the marker.
@@ -73,13 +80,13 @@ if [ "$(cfg '([.scopes | arrays | .[]] | length > 0) or (.scopeMode == "per-root
   S="$(python3 "$HERE/scope.py" of "$MR" 2>/dev/null)" || S=""
   IFS=$'\t' read -r SNAME SDIR _ <<<"$S"
   [ -n "$S" ] && [ "${SNAME:-none}" != none ] \
-    || fail "morning thread FAILED" "scopes are configured, but morningRoot (\"$MR\") resolves to no seat" \
-            "set morningRoot to the folder of the T3 project the morning task runs in (/middle-management-setup)"
+    || fail "its project folder matches no coordinator seat" \
+            "Set morningRoot to the folder of the T3 project the morning task runs in:" "/middle-management-setup" "morningRoot \"$MR\" resolves to no seat"
 fi
 MARKER="$SDIR/orchestrator"
 STATE="$SDIR/morning-t3"
 STATUS="$STATE/status"
-mkdir -p "$STATE" || fail "morning thread FAILED" "cannot create $STATE" "check the permissions of $SDIR"
+mkdir -p "$STATE" || fail "it cannot create its state folder" "Check the folder's permissions, then start it again:" "$RERUN" "cannot create $STATE"
 # One line: date, state, epoch, pid. Read by t3-watch.py and --check; never carries the URL.
 setstatus() { printf '%s\t%s\t%s\t%s\n' "$TODAY" "$1" "$(date +%s)" "$$" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }
 midnight() { echo $(( $(date +%s) - 10#$(date +%H) * 3600 - 10#$(date +%M) * 60 - 10#$(date +%S) )); }
@@ -98,40 +105,50 @@ if [ "${1:-}" = --check ]; then
   WIN="$(cat "$SDIR/morning-ritual/window" 2>/dev/null)"; case "$WIN" in ''|*[!0-9]*) WIN=0 ;; esac
   MT=0; [ -s "$MARKER" ] && MT="$(stat -c %Y "$MARKER" 2>/dev/null || echo 0)"
   MISSING=""
-  [ "$MT" -ge "$M0" ] || MISSING="no coordinator claimed the seat today"
-  [ "$WIN" -ge "$M0" ] || MISSING="${MISSING:+$MISSING; }no morning ritual was stamped today ($SDIR/morning-ritual/window)"
+  [ "$MT" -ge "$M0" ] || MISSING="no coordinator has taken the seat today"
+  [ "$WIN" -ge "$M0" ] || MISSING="${MISSING:+$MISSING, and }the morning ritual has not run today"
   [ -z "$MISSING" ] && { echo "morning-t3 --check: claimed and ritual stamped today"; exit 0; }
-  if [ "$SD" = "$TODAY" ]; then TRIG="the trigger's state today: $SS"
-  else TRIG="the trigger did not run today"; fi
-  fail "morning coordinator MISSING" "$MISSING; $TRIG" \
-       "open T3 and look for today's morning thread (a usage limit or a refused claim stops it there); start a new one: $RERUN_T"
+  if [ "$SD" = "$TODAY" ]; then
+    case "$SS" in
+      posted)  TRIG="The morning start sent its request, but no thread took the seat." ;;
+      waiting) TRIG="The morning start was waiting for the usage limit, but it no longer runs." ;;
+      failed)  TRIG="The morning start failed (its own alarm said why)." ;;
+      refused) TRIG="The morning thread's takeover was refused." ;;
+      claimed) TRIG="The morning thread took the seat but has not finished its ritual." ;;
+      *)       TRIG="The morning start's state today: $SS." ;;
+    esac
+  else TRIG="The morning start did not run today."; fi
+  fail "Morning check: $MISSING" "$TRIG
+A usage limit or a refused takeover stops the morning thread; look for it in T3.
+To start a new one:" "$RERUN_T"
 fi
 
 # ---------------------------------------------------------------------------------- trigger --
 [ -n "$CAUSE" ] && rm -f "$CAUSE"        # a cause left from an earlier failure is not this run's
-command -v curl >/dev/null || fail "morning thread FAILED" "curl is not on PATH" "set Environment=PATH= in the unit"
-command -v claude >/dev/null || fail "morning thread FAILED" "claude is not on PATH (the limit probe)" "set Environment=PATH= in the unit"
-command -v timeout >/dev/null || fail "morning thread FAILED" "timeout (coreutils) is not on PATH" "set Environment=PATH= in the unit"
+command -v curl >/dev/null || fail "it cannot find the curl command" "Add its folder to Environment=PATH= in the unit, then:" "$RERUN"
+command -v claude >/dev/null || fail "it cannot find the claude command (the limit check)" "Add its folder to Environment=PATH= in the unit, then:" "$RERUN"
+command -v timeout >/dev/null || fail "it cannot find the timeout command (coreutils)" "Add its folder to Environment=PATH= in the unit, then:" "$RERUN"
 
 UF="$(cfg '.morningTaskUrlFile // "~/.config/t3-threads/morning-task-url"')"
 case "$UF" in "~/"*) UF="$HOME/${UF#\~/}" ;; esac
-[ -f "$UF" ] || fail "morning thread FAILED" "no webhook URL file $UF" \
-  "create the T3 webhook task (/middle-management-setup step 7b) and store its URL there, mode 600"
+[ -f "$UF" ] || fail "the address of the T3 morning task is not stored" \
+  "Create the T3 webhook task and store its URL in a mode-600 file (step 7b):" "/middle-management-setup" "no webhook URL file $UF"
 case "$(stat -c %a "$UF" 2>/dev/null)" in 600|400) ;; *)
-  fail "morning thread FAILED" "the webhook URL file $UF is readable by others (it is a key into a full-access thread)" "chmod 600 $UF" ;;
+  fail "the address of the T3 morning task is readable by others" "That address opens a thread with full access. Lock the file down, then start it again ($RERUN):" "chmod 600 $UF" ;;
 esac
 URL="$(head -c 4096 "$UF" | tr -d '[:space:]')"
 printf '%s' "$URL" | grep -Eq '^https?://[^"\\[:space:]]+$' \
-  || fail "morning thread FAILED" "$UF holds no usable http(s) URL" "store the webhook URL of the T3 morning task there"
+  || fail "the stored address of the T3 morning task is no usable URL" "Store the task's webhook URL in that file, then start it again:" "$RERUN" "$UF holds no usable http(s) URL"
 
 # The standing word first: without it the thread could only be refused (and sit there all morning).
 [ "$(cfg 'if (.morningTakeover | type) == "object" and .morningTakeover.allowed == true then "yes" else "no" end')" = yes ] \
-  || fail "morning thread NOT started" "the morning trigger is armed, but the config has no takeover word (morningTakeover.allowed is not true), so the thread could not take the seat" \
-          "/middle-management-setup item 16b, or disarm: systemctl --user disable --now orch-morning-t3.timer orch-morning-watchdog.timer"
+  || fail "the takeover is not allowed in the config" "The morning start is on, but without your standing word its thread could not take the seat, so it was not started.
+Give the word with /middle-management-setup (item 16b), or switch the morning start off:" \
+          "systemctl --user disable --now orch-morning-t3.timer orch-morning-watchdog.timer" "morningTakeover.allowed is not true"
 
 WAIT_UNTIL="${MM_MORNING_WAIT_UNTIL:-$(cfg '.morningWaitUntil // "09:30"')}"
 DEADLINE="$(date -d "$TODAY $WAIT_UNTIL" +%s 2>/dev/null)" \
-  || fail "morning thread FAILED" "morningWaitUntil \"$WAIT_UNTIL\" is no time of day" "HH:MM in the config"
+  || fail "the wait deadline in the config is no time of day" "Set morningWaitUntil to HH:MM, then start it again:" "$RERUN" "morningWaitUntil \"$WAIT_UNTIL\""
 RETRY="${MM_MORNING_RETRY_SEC:-600}"; PROBE_SEC="${MM_MORNING_PROBE_SEC:-60}"
 HOLDER0="$(head -1 "$MARKER" 2>/dev/null)"
 
@@ -158,14 +175,21 @@ while :; do
   NOW="$(date +%s)"
   if [ "$NOW" -ge "$DEADLINE" ]; then
     setstatus cancelled
-    notify "[$HOST] morning thread cancelled today: the account is still usage-limited at $WAIT_UNTIL ($WHY). Start it by hand later, with a later deadline: $LATE" \
-      || fail "morning thread cancelled" "usage limit until $WAIT_UNTIL, and the notice could not be sent" "once the limit is over: $LATE"
+    notify "🔴 No morning coordinator today: the account is still at its usage limit at $WAIT_UNTIL
+
+The morning thread was not started; whoever holds the coordinator seat keeps it.
+Once the limit is over, start it by hand with a later deadline:
+$LATE$([ "$WHY" = "usage limit" ] || printf '\nDetail: %s' "$WHY")" \
+      || fail "the account was still at its usage limit at $WAIT_UNTIL" "Once the limit is over, start it by hand with a later deadline:" "$LATE" "the usual notice could not be sent"
     echo "morning-t3: cancelled, usage limit until the deadline $WAIT_UNTIL"
     exit 0
   fi
   if [ -z "$WAITED" ]; then
     WAITED=1
-    notify "[$HOST] morning thread waits: the account is usage-limited ($WHY). Probing every $((RETRY / 60)) min until $WAIT_UNTIL." \
+    notify "🔴 Usage limit: the morning coordinator waits
+
+It checks again every $((RETRY / 60)) min until $WAIT_UNTIL and starts as soon as the limit is over.
+Nothing to do.$([ "$WHY" = "usage limit" ] || printf '\nDetail: %s' "$WHY")" \
       || echo "morning-t3: the wait notice could not be sent" >&2
   fi
   setstatus waiting
@@ -178,15 +202,18 @@ if [ -n "$WAITED" ]; then
   H1="$(head -1 "$MARKER" 2>/dev/null)"
   if [ "$H1" != "$HOLDER0" ] && [ -n "$H1" ]; then
     setstatus cancelled
-    notify "[$HOST] morning thread not started: the coordinator seat changed hands while it waited; the ritual runs there." \
-      || fail "morning thread cancelled" "the seat changed hands during the wait, and the notice could not be sent" "nothing to do"
+    notify "🟡 No new morning coordinator needed: another session took the seat while it waited, so the morning ritual is up to that one." \
+      || fail "another session took the seat while it waited" "Nothing to do: the morning ritual is up to that session." "" "the usual notice could not be sent"
     echo "morning-t3: cancelled, the seat changed hands during the wait"
     exit 0
   fi
   if [ "$PROBE" = free ]; then
-    notify "[$HOST] account free again ($(date +%H:%M)): starting the morning thread." || true
+    notify "🟡 Limit over at $(date +%H:%M): starting the morning coordinator." || true
   else
-    notify "[$HOST] morning thread: the limit probe is unclear ($WHY); starting it anyway." || true
+    notify "⚠️ Starting the morning coordinator anyway: the limit check gave no clear answer
+
+If the account is still limited, the thread shows it in T3.
+Detail: $WHY" || true
   fi
 fi
 [ "$PROBE" = unclear ] && echo "morning-t3: limit probe unclear ($WHY), starting anyway" >&2
@@ -215,7 +242,8 @@ if [ -n "$LOCAL" ]; then
      || { [ "$CODE" != 202 ] && awk -v t="${TC:-0}" 'BEGIN { exit !(t + 0 == 0) }'; }; then LOCAL=""; fi
 fi
 [ -z "$LOCAL" ] && { read -r CODE _ <<<"$(post "$URL")"; WHERE=configured; }
-[ "$CODE" = 202 ] || fail "morning thread NOT started" "the T3 webhook task answered HTTP ${CODE:-000} via the $WHERE URL (expected 202)" \
-  "is t3code running and the task still there (list_scheduled_tasks)? Then: $RERUN"
+[ "$CODE" = 202 ] || fail "T3 did not start the morning thread" \
+  "Check that T3 Code runs and the morning task still exists (list_scheduled_tasks), then:" "$RERUN" \
+  "the T3 webhook task answered HTTP ${CODE:-000} via the $WHERE URL (expected 202)"
 setstatus posted
 echo "morning-t3: morning thread started (HTTP 202)${WAITED:+ after a usage-limit wait}"

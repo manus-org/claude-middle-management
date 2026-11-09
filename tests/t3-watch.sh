@@ -79,7 +79,7 @@ EOF
 chmod +x "$TMP/bin/claude"
 
 cat > "$CFG/middle-management.json" <<EOF
-{"notifyCommand": "cat >> $TMP/notify.log; printf '\\\\n----\\\\n' >> $TMP/notify.log",
+{"notifyCommand": "tee -a $TMP/all-notify.log >> $TMP/notify.log; printf '\\\\n----\\\\n' >> $TMP/notify.log",
  "onLimitCommand": "echo \"\$@\" >> $TMP/onlimit.log",
  "t3TokenFile": "$TMP/token",
  "t3Url": "http://127.0.0.1:$PORT",
@@ -183,8 +183,11 @@ echo "C. usage limit, workers only (probe)"
 reset
 shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
 tick 0
-has "notify names the thread" "lane one (mcp:w1), model claude-opus-5-5, resets 2026-10-20T08:00:00.000Z" "$(notes)"
-has "notify says what to do" "switch the subscription" "$(notes)"
+has "notify headline: what happened" "🔴 Usage limit: 1 session is paused" "$(notes | head -1)"
+has "notify names the thread by title, the reset in local time" "• lane one (until $(LC_ALL=C date -d 2026-10-20T08:00:00Z '+%d %b %H:%M'))" "$(notes)"
+has "...what happens next" "When the limit is over, the coordinator restarts the paused workers" "$(notes)"
+lacks "...no coordinator line when only a worker is limited" "does not resume its own task" "$(notes)"
+has "notify says what to do, last (the reset is past)" "Switch the subscription, or wait for the reset." "$(notes | sed -n '/^----$/q;p' | grep . | tail -1)"
 is "onLimitCommand got the thread id" "$(cat "$TMP/onlimit.log" 2>/dev/null)" "mcp:w1"
 is "no probe at episode start" "$(nprobe)" 0
 tick 600; is "latched: no second notify, no probe at +10 min" "$(nnote)/$(nprobe)" "1/0"
@@ -200,21 +203,28 @@ has "wake: names the thread" "lane one (mcp:w1)" "$R"
 has "wake: says what to send" "send 'Continue where you left off.' to each" "$R"
 is "onLimitCommand once per episode" "$(wc -l < "$TMP/onlimit.log" | tr -d ' ')" 1
 shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",\"status\":\"failed\"}]"
-tick 3900; lacks "lastErrorClass cleared, same failed run: still limited" "resolved" "$(notes)"
+tick 3900; lacks "lastErrorClass cleared, same failed run: still limited" "working again" "$(notes)"
 shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",\"lastErrorClass\":\"usage_limit\"}]"
-tick 4000; lacks "completed with the SAME run id: not over" "resolved" "$(notes)"
+tick 4000; lacks "completed with the SAME run id: not over" "working again" "$(notes)"
 shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",\"lastErrorClass\":\"usage_limit\",\"latestRunId\":\"run:2\"}]"
-tick 4200; has "episode end -> resolved" "resolved: usage limit over" "$(notes)"
-tick 4800; is "resolved only once" "$(grep -c resolved "$TMP/notify.log")" 1
+tick 4200; has "episode end -> resolved, one line" "🟡 Limit over: the session paused since " "$(notes)"
+has "...since the episode start, local time" "$(date -d @"$T0" +%H:%M) is working again." "$(notes)"
+tick 4800; is "resolved only once" "$(grep -c 'working again' "$TMP/notify.log")" 1
 
 reset
 shell "[$COORD_OK, {\"id\":\"mcp:w7\",\"title\":\"lane seven\",\"status\":\"failed\",\"lastErrorClass\":\"usage_limit\"}]"
-tick 0; has "no usageLimitResetAt -> reset unknown" "lane seven (mcp:w7), model claude-opus-5-5, reset unknown" "$(notes)"
+tick 0; has "no usageLimitResetAt -> reset time unknown" "• lane seven (reset time unknown)" "$(notes)"
+has "...and the action waits for the reset" "Switch the subscription, or wait for the reset." "$(notes)"
+reset
+FUT=$(date -u -d @$((T0 + 7200)) +%Y-%m-%dT%H:%M:%S.000Z)
+shell "[$COORD_OK, {\"id\":\"mcp:w6\",\"title\":\"lane six\",\"status\":\"failed\",\"lastErrorClass\":\"usage_limit\",\"usageLimitResetAt\":\"$FUT\"}]"
+tick 0; has "a future reset -> the action names it" "Switch the subscription, or wait until " "$(notes)"
+has "...in local time, as the last line" "$(date -d @$((T0 + 7200)) +%H:%M)." "$(notes | sed -n '/^----$/q;p' | grep . | tail -1)"
 reset
 shell "[$COORD_OK, {\"id\":\"mcp:w8\",\"title\":\"lane eight\",\"status\":\"running\",\"activityRunStatus\":\"running\",\"activeRunId\":\"r8\",$LIMITED}]"
 tick 0; shell "[$COORD_OK, {\"id\":\"mcp:w8\",\"title\":\"lane eight\",$LIMITED}]"; tick 600
 shell "[$COORD_OK, {\"id\":\"mcp:w8\",\"title\":\"lane eight\",\"status\":\"running\",\"activityRunStatus\":\"running\",\"activeRunId\":\"r9\",$LIMITED}]"
-tick 1200; has "a live run ends the episode, lastErrorClass still set" "resolved: usage limit over" "$(notes)"
+tick 1200; has "a live run ends the episode, lastErrorClass still set" "working again" "$(notes)"
 
 # "limit over" once per (thread, run id), checked across several 30-min periods
 reset; echo ok > "$TMP/probe.mode"
@@ -235,7 +245,8 @@ lacks "...not the other" "lane two (mcp:w2)" "$(hooks | tail -1 | jq -r .report)
 echo "D. usage limit, coordinator limited too (Keepalive)"
 reset
 shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED}, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
-tick 0; has "both threads notified" "Koordinator (mcp:coord)" "$(notes)"; has "...and the worker" "lane one (mcp:w1)" "$(notes)"
+tick 0; has "both threads notified" "• Koordinator (coordinator, until" "$(notes)"; has "...and the worker" "• lane one (until" "$(notes)"
+has "...the coordinator's own task does not resume by itself" "The coordinator does not resume its own task" "$(notes)"
 tick 1200; is "no retry before 30 min" "$(nhook)" 0
 tick 1800; is "retry at +30 min = exactly Keepalive" "$(hooks | jq -r .report)" Keepalive
 is "no probe while the coordinator is limited" "$(nprobe)" 0
@@ -255,7 +266,7 @@ reset
 shell "[$COORD_OK, {\"id\":\"mcp:w2\",\"title\":\"lane two\",\"status\":\"waiting\",\"pendingRuntimeRequest\":{\"id\":\"req1\",\"type\":\"approval\"}}]"
 tick 0; is "seen first: no notify" "$(nnote)" 0
 tick 599; is "9:59 min: no notify" "$(nnote)" 0
-tick 600; has "10 min: notify" "waiting on a click" "$(notes)"
+tick 600; has "10 min: notify" "⏳ A session waits for your answer: lane two" "$(notes)"
 tick 1200; is "once per request" "$(nnote)" 1
 shell "[$COORD_OK, {\"id\":\"mcp:w2\",\"title\":\"lane two\",\"status\":\"waiting\",\"pendingRuntimeRequest\":{\"id\":\"req2\"}}]"
 tick 1800; tick 2400; is "a new request is a new episode" "$(nnote)" 2
@@ -268,7 +279,7 @@ shell "[$COORD_OK, {\"id\":\"mcp:w3\",\"title\":\"lane three\",$RUN,\"itemCount\
 tick 0; tick 7200
 shell "[$COORD_OK, {\"id\":\"mcp:w3\",\"title\":\"lane three\",$RUN,\"itemCount\":5}, {\"id\":\"mcp:w4\",\"title\":\"lane four\",$RUN,\"itemCount\":8}]"
 tick 10799; is "under 3 h: silent" "$(nnote)" 0
-tick 10800; has "3 h without a new item: notify" "lane three (mcp:w3)" "$(notes)"
+tick 10800; has "3 h without a new item: notify" "🔴 A session may hang: lane three" "$(notes)"
 lacks "a run with a new item is not stuck" "lane four" "$(notes)"
 tick 14400; is "once per run" "$(nnote)" 1
 
@@ -283,29 +294,48 @@ shell "[$COORD_OK, {\"id\":\"mcp:w5\",\"title\":\"lane five\",\"status\":\"faile
 tick 1200; is "new run id -> wake again" "$(nhook)" 2
 shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",\"status\":\"failed\",\"lastErrorClass\":\"provider_error\",\"latestRunId\":\"c1\"}]"
 tick 1800; is "coordinator failure -> notify, no wake" "$(nnote)/$(nhook)" "1/2"
-has "...the notify says so" "the coordinator's last run failed" "$(notes)"
+has "...the notify says so" "🔴 The coordinator's last run failed: Koordinator" "$(notes)"
+has "...the error class as the last line" "Detail: provider_error" "$(notes | sed -n '/^----$/q;p' | grep . | tail -1)"
 
 # ------------------------------------------------------------------------------------------ H --
 echo "H. report lost"
 reset; shell "[$COORD_OK]"
 echo 429 > "$TMP/hook.mode"; MM_SESSION_ID=sid-w9 wakecall lane-x "$TMP/r.txt"; rm -f "$TMP/hook.mode"
-tick 0; has "lost report -> notify" "report lost" "$(notes)"
-has "...with sender, thread and reason" "from lane-x, thread mcp:w9: http 429" "$(notes)"
+tick 0; has "lost report -> notify" "🔴 1 worker report did not reach the coordinator" "$(notes)"
+has "...with sender and reason in words" "lane-x: refused (HTTP 429)" "$(notes)"
 tick 600; is "once per line" "$(nnote)" 1
 : > "$CFG/state/t3-report/failures.log"; MM_SESSION_ID=sid-w9 T3_WAKE_TIMEOUT=1 bash -c 'echo 503 > '"$TMP"'/hook.mode'
 wakecall lane-y "$TMP/r.txt"; rm -f "$TMP/hook.mode"
-tick 1200; has "a truncated log is read from the top" "from lane-y" "$(notes)"
+tick 1200; has "a truncated log is read from the top" " lane-y: refused (HTTP 503)" "$(notes)"
+has "...a session's report: read it there" "A report from a session is still in that session" "$(notes)"
+reset; shell "[$COORD_OK]"; FL=$CFG/state/t3-report/failures.log
+printf '%s\tt3-watch\t-\tunknown\thttp 404\n' "$(date -Is)" >> "$FL"; tick 0
+has "the watcher's own wake lost -> named as such" "the watcher's notice: refused (HTTP 404)" "$(notes)"
+has "...a message, not a worker report" "🔴 1 message did not reach the coordinator" "$(notes)"
+has "...what is retried and what is not" "A notice about a failed session is not retried: check T3 for failed sessions." "$(notes)"
+lacks "...no 'read it in the session' for the watcher" "still in that session" "$(notes)"
+reset; shell "[$COORD_OK]"
+printf '%s\tt3-watch\t-\t-\tdigest wake failed (http 000), 2 report(s) stay queued in the inbox; the watcher retries every 10 min\n' "$(date -Is)" >> "$FL"
+printf '%s\tsidecar-check\t-\tunknown\tsidecar mode is not 0600\n' "$(date -Is)" >> "$FL"; tick 0
+has "a quiet digest lost -> queued and retried" "quiet-report digest: no answer; the reports stay queued and are retried every 10 min" "$(notes)"
+has "a broken sidecar -> what to do in words" "the coordinator's seat file is broken: have the coordinator claim the seat again" "$(notes)"
+lacks "...no raw sidecar wording" "0600" "$(notes)"
+reset; shell "[$COORD_OK]"
+printf '%s\tt3-watch\t-\t-\tdigest wake failed (http 429), 1 report(s) stay queued in the inbox; the watcher retries every 10 min\n' "$(date -Is)" >> "$FL"; tick 0
+is "digest lines only -> nothing to do, as the action" "Nothing to do now." "$(notes | sed -n '/^----$/q;p' | grep . | tail -1)"
 
 # ------------------------------------------------------------------------------------------ I --
 echo "I. T3 API problems"
 reset; shell "[$COORD_OK]"
 echo 400 > "$TMP/shell.code"
-tick 0; RC=$?; has "400 -> T3 API changed" "T3 API changed" "$(notes)"; is "...exit 0, no crash" "$RC" 0
+tick 0; RC=$?; has "400 -> T3 API changed" "⚠️ T3 watcher paused: it no longer understands T3 Code" "$(notes)"; is "...exit 0, no crash" "$RC" 0
+has "...says what still works" "Lost reports and topic reminders still come through." "$(notes)"
 tick 600; is "once per day" "$(nnote)" 1
 reset; python3 -c 'import json; json.dump({"threads":[{"id":"x"}],"projects":[]}, open("'"$TMP"'/shell.json","w"))'
 tick 0; has "missing keys -> T3 API changed" "lacks keys" "$(notes)"
 reset; shell "[$COORD_OK]"; chmod 644 "$TMP/token"
-tick 0; has "group-readable token refused" "readable by group/other, refused" "$(notes)"
+tick 0; has "group-readable token refused" "its token file is readable by others" "$(notes)"
+has "...the fix is the command" "Fix: chmod 600 $TMP/token" "$(notes)"
 is "...and never sent" "$([ -f "$TMP/get.log" ] && echo got || echo none)" none
 chmod 600 "$TMP/token"
 reset
@@ -314,7 +344,7 @@ jq '.t3Url = "http://127.0.0.1:1"' "$TMP/cfg.bak" > "$CFG/middle-management.json
 HOME="$H" CLAUDE_CONFIG_DIR="" T3W_NOW=$T0 python3 "$S/t3-watch.py" 2>>"$TMP/stderr.log"
 is "server down once: silent (restart grace)" "$(nnote)" 0
 HOME="$H" CLAUDE_CONFIG_DIR="" T3W_NOW=$((T0+600)) python3 "$S/t3-watch.py" 2>>"$TMP/stderr.log"
-has "server down twice: notify" "T3 server unreachable" "$(notes)"
+has "server down twice: notify" "⚠️ T3 watcher paused: T3 Code does not answer" "$(notes)"
 
 echo "I2. T3 URL: config t3Url, default loopback on T3CODE_PORT"
 reset; shell "[$COORD_OK]"
@@ -334,9 +364,10 @@ cp "$TMP/cfg.bak" "$CFG/middle-management.json"
 # ------------------------------------------------------------------------------------------ J --
 echo "J. no coordinator"
 reset; sidecar mcp:gone; shell "[$COORD_OK]"
-tick 0; has "sidecar thread missing -> notify" "folder has no coordinator" "$(notes)"
+tick 0; has "sidecar thread missing -> notify" "🔴 No coordinator: the seat names a closed session" "$(notes)"
+has "...names the holder by title" "\"Koordinator\" holds the seat, but it no longer exists." "$(notes)"
 tick 600; is "once per episode" "$(nnote)" 1
-sidecar mcp:coord; tick 1200; has "back -> resolved" "resolved: the coordinator thread is back" "$(notes)"
+sidecar mcp:coord; tick 1200; has "back -> resolved, one line" "🟡 Coordinator is back: \"Koordinator\" holds the seat." "$(notes)"
 
 # ------------------------------------------------------------------------------------------ K --
 echo "K. dry-run"
@@ -367,7 +398,9 @@ handover() {  # $1 = sidecar thread id, $2 = since (epoch)
   mv "$SIDE.new" "$SIDE"; chmod 600 "$SIDE"; }
 handover mcp:coord $((T0 - 1000))
 tick 0; is "16 min open: silent" "$(nnote)" 0
-tick 801; has "over 30 min: notify" "handover to Koordinator 2 (thread mcp:c2) open for 30 min, the successor has not claimed" "$(notes)"
+tick 801; has "over 30 min: notify" "⏳ Coordinator handover stuck: \"Koordinator 2\" has not taken the seat" "$(notes)"
+has "...the old holder keeps the seat" "\"Koordinator\" keeps the seat until then." "$(notes)"
+has "...what to do" "Open \"Koordinator 2\" in T3 and have it run /orchestrator claim." "$(notes)"
 tick 1800; is "once per handover" "$(nnote)" 1
 handover mcp:coord $((T0 + 1000)); tick 4000; is "a new handover notifies again" "$(nnote)" 2
 reset; handover mcp:c2 $((T0 - 7200)); tick 0
@@ -379,18 +412,19 @@ morning() {  # posted at T0+1500 s: the hold covers ticks up to T0+3300 s
   mkdir -p "$CFG/state/morning-t3"; printf '%s\tposted\t%s\t1\n' "$(date +%F)" "$((T0 + 1500))" > "$CFG/state/morning-t3/status"; touch -d "1 hour ago" "$SIDE"; }
 reset; sidecar mcp:coord; morning; echo ok > "$TMP/probe.mode"
 shell "[$COORD_OK, {\"id\":\"mcp:morning\",\"title\":\"morning\",$LIMITED}]"
-tick 0; has "the limited morning thread is notified" "morning (mcp:morning)" "$(notes)"
+tick 0; has "the limited morning thread is notified" "• morning (until" "$(notes)"
 tick 1800; is "probe passes -> no wake into the night coordinator" "$(nprobe)/$(nhook)" "1/0"
-has "...the user gets limit over instead" "limit over" "$(notes)"
-has "...saying the night coordinator is not woken" "the night coordinator Koordinator is NOT woken" "$(notes)"
-has "...and what to send" "send 'Continue where you left off.'" "$(notes)"
-tick 3600; is "...once per run id" "$(grep -c 'limit over' "$TMP/notify.log")" 1
+has "...the user gets limit over instead" "⏳ Limit over: restart 1 paused session yourself" "$(notes)"
+has "...saying the night coordinator is not woken" "The night coordinator \"Koordinator\" is not woken" "$(notes)"
+has "...and what to send" "Open it in T3 and send 'Continue where you left off.'" "$(notes)"
+tick 3600; is "...once per run id" "$(grep -c 'Limit over: restart' "$TMP/notify.log")" 1
 reset; sidecar mcp:coord; morning
 shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED}]"
 tick 0; tick 1800; is "limited night coordinator: no Keepalive while the morning claim is pending" "$(nhook)" 0
 reset; sidecar mcp:coord; morning
 shell "[$COORD_OK, {\"id\":\"mcp:morning\",\"title\":\"morning\",\"status\":\"failed\",\"lastErrorClass\":\"provider_error\",\"lastError\":\"boom\"}]"
-tick 0; is "other failure: no wake" "$(nhook)" 0; has "...notify instead" "other failure" "$(notes)"
+tick 0; is "other failure: no wake" "$(nhook)" 0; has "...notify instead" "🔴 A session stopped with an error: morning" "$(notes)"
+has "...the raw error only as the last line" "Detail: provider_error: boom" "$(notes | sed -n '/^----$/q;p' | grep . | tail -1)"
 reset; sidecar mcp:coord; morning; touch -d "+1 hour" "$SIDE"; echo ok > "$TMP/probe.mode"
 shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
 tick 0; tick 1800; is "the sidecar is newer than the post (bound): wakes as before" "$(nhook)" 1
@@ -454,6 +488,13 @@ echo "Z. secrets"
 ALL=$(cat "$TMP/notify.log" "$TMP/stderr.log" "$CFG/state/t3-report/"* "$CFG/state/t3-watch/"* 2>/dev/null)
 lacks "no webhook secret in any output, log or state" "$SECRET" "$ALL"
 lacks "no token in any output, log or state" "$TOKEN" "$ALL"
+AN=$(cat "$TMP/all-notify.log" 2>/dev/null)
+[ -n "$AN" ] && ok "every notify of this run was collected" || bad "every notify collected" "messages" "none"
+lacks "no thread id (mcp:...) in any notify" "mcp:" "$AN"
+lacks "no model id in any notify" "claude-opus-5-5" "$AN"
+lacks "no host/scope prefix in any notify" ", scope " "$AN"
+is "no ISO timestamp in any notify" "$(printf '%s\n' "$AN" | grep -cE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:')" 0
+is "no line starts with the script name" "$(printf '%s\n' "$AN" | grep -c '^t3-watch ')" 0
 lacks "no [HH:MM] prefix in the scripts" "[HH:MM]" "$(cat "$SRC/t3-watch.py" "$SRC/t3-wake.sh")"
 EM=$(printf '\xe2\x80\x94')   # the em dash, spelled as bytes so this file carries none
 NEW="$SRC/t3-watch.py $SRC/t3-wake.sh $SRC/t3-inbox.py $ROOT/plugins/middle-management/templates/systemd/t3-watch.service $ROOT/plugins/middle-management/templates/systemd/t3-watch.timer $0"

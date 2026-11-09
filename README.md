@@ -107,7 +107,7 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 | PR gate | PreToolUse hook (optional) | Holds `gh pr create` until `pr-gate.md` beside the `--body-file` has every box ticked; `MM_PR_GATE=off` overrides. Off unless `prGate: true`. |
 | Open-items drop | script + banner line | Every session writes each "for later" item the moment it appears, with `scripts/open-items.py add`, to its own file under `<config-dir>/open-items/`; the coordinator's banner counts what is not on the board yet, `list` shows it, and `done` deletes a file only once every key is on the board and the session is gone. A to-do no longer dies with a session that never wrapped, or with a coordinator hand-over. |
 | `morning-ritual` skill | skill | The coordinator’s day-opener: messages delta, repo state, wrap audit, board sweep, machine cleanup, your user’s to-do list, day plan. The to-do list also runs alone ("todo list", "meine offenen To-Dos"): every open `owner: user` item from the board and the drops, grouped decide / click / run / read, only what was not delivered yet (`open-items.py todo`). Coordinator sessions only; carries CUSTOMIZE markers for your team’s stack. |
-| Headless morning ritual | systemd user timer (optional, Linux) | Weekdays 07:30: nothing moved since the last delivered ritual → one "no progress since <date>" line, no model run. Otherwise a 25-second login probe (429/401/no answer → a second credential from a file the unit names), the `morning-ritual` skill under `--max-budget-usd` and a hard timeout, and the day plan through your `notifyCommand`. A failure arrives as headline + cause + fix command, not journal lines. Installed by setup step 7; see [Headless morning ritual](#headless-morning-ritual). |
+| Headless morning ritual | systemd user timer (optional, Linux) | Weekdays 07:30: nothing moved since the last delivered ritual → one short "Nothing new since <time>" note, no model run. Otherwise a 25-second login probe (429/401/no answer → a second credential from a file the unit names), the `morning-ritual` skill under `--max-budget-usd` and a hard timeout, and the day plan through your `notifyCommand`. A failure arrives in words: what failed, what still works, the one command that fixes it, the raw cause as a last `Detail:` line, not journal lines. Installed by setup step 7; see [Headless morning ritual](#headless-morning-ritual). |
 | T3 report hook | Stop hook (T3 Code only) | In a T3 Code thread whose scope's coordinator is bound to a thread: sends the last text of each worker turn to the coordinator's report task, which wakes it, also when it is asleep. Holds short interim turns while its own sub-agents run and sends them with the next turn (a report is sent at once); skips repeats and a bare `OK`; a failed send is told to the session once. With `quietReports` on, reports go into an inbox and only an important one wakes the coordinator; the rest reaches it inside its own turn (PostToolUse / UserPromptSubmit hook `hooks/t3-inbox.sh`). See [T3 Code](#t3-code), [Quiet reports](#quiet-reports). |
 | T3 watcher | systemd user timer (optional, Linux) | Every 10 minutes, no model: usage limits (with a retry), clicks pending, stuck runs, lost reports, an open handover, a folder without coordinator, and the topics tick. Installed by setup step 8. |
 | Follow-through | script + timer tick | `scripts/topics.py` is the one writer of a topic's state: it appends the session-log entry and keeps a table `<board>.topics.md`, a reminder digest and a daily digest, so no topic drops out of sight before it is done, reviewed and OK'd. See [Follow-through](#follow-through). |
@@ -229,7 +229,8 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
   tokens in a mode-600 env file the command sources — setup prints this file back to you.
 - `notifyFallbackCommand` (optional, 0.11.1): the second alarm route, same contract as
   `notifyCommand`. `scripts/unit-failure-alarm.sh` runs it only when `notifyCommand` is missing or
-  fails, with the text prefixed `[fallback route: the main alarm channel failed]`. Every unit that
+  fails, with the last line `(Sent the backup way: the usual message channel failed. Please check
+  it.)` added under the text. Every unit that
   fails loudly ends in that alarm (the watcher and the heartbeat exit 1 when their own notify
   fails), so one fallback covers them all. Set it before installing any unit (setup steps 5-9).
 - `sessionLog` (optional, default `~/logs/session-log.md`): the machine's session log — see
@@ -576,9 +577,11 @@ messaged: waking it would make it re-pay its whole context for a seat it is abou
    morning thread's claim (status `posted`; every exit of `claim --morning` turns it into `claimed`
    or `refused`), at most 30 minutes, and only while the sidecar is older than the post,
    `t3-watch.py` sends nothing into the sidecar's thread: "limit over" and "other failure" go to you
-   as a notify, the `Keepalive` retry is skipped. The Stop hook (`hooks/t3-report.sh`) does not send
+   as a notify ("Limit over: restart … yourself", "A session stopped with an error"), the
+   `Keepalive` retry is skipped. The Stop hook (`hooks/t3-report.sh`) does not send
    the turn text of a session started after the post into that thread; the held turn becomes a line
-   in `failures.log`, which the watcher sends to you as "report lost", and the session is told once.
+   in `failures.log`, which the watcher sends to you ("… did not reach the coordinator"), and the
+   session is told once.
    A refused claim notifies you through `notifyCommand` and ends the hold for every other session;
    the refused morning thread itself stays held for the day (it is named in the status line), so a
    refusal never wakes the night coordinator.
@@ -653,7 +656,8 @@ With [scopes](#scopes) it serves the default scope only.
 
 1. **Empty window.** No change in the session log, the board, the open-items drops, the commits of
    any protected checkout (after a best-effort fetch) or `MM_MORNING_WATCH` since `window` → one
-   line `no progress since <date>`, no model run, the window keeps its date.
+   short note `Nothing new since <time>, so no morning report today`, no model run, the window
+   keeps its date.
 2. **Probe.** `claude -p OK --max-turns 1` under `timeout` (`MM_MORNING_PROBE_SEC`, 25). A 429, a
    401 or no answer — a rate-limited login retries with backoff and simply hangs — loads
    `ANTHROPIC_API_KEY` and/or `CLAUDE_CODE_OAUTH_TOKEN` from the file `MM_MORNING_FALLBACK_ENV`
@@ -671,9 +675,11 @@ With [scopes](#scopes) it serves the default scope only.
    need your settings' allow rules or a mode, since nothing can be approved unattended). A unit
    `CLAUDE_CONFIG_DIR` equal to `~/.claude` is not passed on to `claude`, which would otherwise read
    `~/.claude/.claude.json` instead of your `~/.claude.json`.
-4. **Failure** → exit 1 with a cause file `<config-dir>/state/unit-failure-alarm/<unit>.cause`:
-   one headline, the cause (`429`, `401`, `timeout`, `budget`, `other`) and the one fix command.
-   The unit's `OnFailure=unit-failure-alarm@%n.service` sends that instead of the journal tail.
+4. **Failure** → exit 1 with a cause file `<config-dir>/state/unit-failure-alarm/<unit>.cause`,
+   in words: the headline `No morning report today: <cause>` (usage limit, login refused, too
+   long, spending cap, or the cause itself), what still works, what to do with the one command on
+   its own line, and the raw cause as a last `Detail:` line. The unit's
+   `OnFailure=unit-failure-alarm@%n.service` sends that instead of the journal tail.
 
 **Porting a site-local runner.** A machine that already runs its own headless ritual (a wrapper
 around `claude -p` with hard-coded paths and its own sender) moves onto this one mechanically:
@@ -886,7 +892,8 @@ plugin never degrades silently. While the config is invalid, the worktree guard 
   (`loginctl enable-linger`). macOS launchd is not supported.
 - For the T3 mode additionally: T3 Code 0.1.0 or newer (the protocol-2 read and the provider-log
   names the thread lookup uses are T3 internals; both fail soft after a T3 update: thread
-  `unknown`, one "T3 API changed" notify), `curl`, and for the watcher a systemd user manager.
+  `unknown`, one "T3 watcher paused: it no longer understands T3 Code" notify a day), `curl`, and
+  for the watcher a systemd user manager.
 - For a private marketplace repo: working git credentials for the host on every
   installing machine (`/plugin marketplace add` clones over git).
 

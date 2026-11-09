@@ -274,7 +274,11 @@ morning_outcome() {
   printf '%s\t%s\t%s\t%s\t%s\n' "$d" "$state" "$(date +%s)" "$$" "$MY_ID" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f"
   [ "$state" = refused ] || return 0
   cmd=$(jq -r '.notifyCommand // ""' "$(bash "$DIR/config-check.sh" file)" 2>/dev/null)
-  msg="[$(hostname -s 2>/dev/null || echo host)] morning takeover REFUSED in \"$MY_NAME\" (claim --morning, exit $rc): the night coordinator keeps the seat. The morning thread shows why."
+  msg="🔴 The morning coordinator could not take over: the night coordinator keeps the seat
+
+Today's morning thread in T3 says why and waits there.
+Open it in T3 and answer it, or close it if the night coordinator should stay.
+Detail: claim --morning exit $rc"
   [ -n "$cmd" ] && { printf '%s\n' "$msg" | sh -c "$cmd" notify "$msg" >/dev/null 2>&1 || echo "WARNING: the refusal notice could not be sent (notifyCommand)."; }
   return 0
 }

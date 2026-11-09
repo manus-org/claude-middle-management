@@ -136,10 +136,10 @@ has "...systemMessage" '"systemMessage":"middle-management: ' "$OUT"
 has "...names the cause" "cannot copy" "$OUT"
 jq -e . <<<"$OUT" >/dev/null 2>&1 && ok "...valid JSON" || bad "...valid JSON" json "$OUT"
 [ -e "$C/state/plugin-version" ] && bad "...no stamp (the next start retries)" absent "$(cat "$C/state/plugin-version")" || ok "...no stamp (the next start retries)"
-has "...notified" "the unit copies were NOT refreshed" "$(notes)"
+has "...notified" "Plugin update not applied to the background jobs" "$(notes)"
 OUT=$(hook)
 has "the second start -> systemMessage again" "systemMessage" "$OUT"
-is "...but no second notify for the same version" "$(notes | grep -c 'NOT refreshed')" 1
+is "...but no second notify for the same version" "$(notes | grep -c 'Plugin update not applied')" 1
 chmod 755 "$C/middle-management-canary"
 OUT=$(hook); is "fixed -> the next start refreshes" "$(cat "$C/state/plugin-version")" "$V"
 [ -e "$C/state/plugin-version.failed" ] && bad "...the notify latch is cleared" absent present || ok "...the notify latch is cleared"
@@ -147,7 +147,7 @@ setup; jq --arg fb "printf '%s\\n' \"\$1\" >> $TMP/fb" '.notifyCommand = "exit 1
   "$C/middle-management.json" > "$C/x" && mv "$C/x" "$C/middle-management.json"
 mkdir -p "$C/middle-management-canary"; chmod 555 "$C/middle-management-canary"
 OUT=$(hook)
-has "notifyCommand fails -> the fallback route" "[fallback route: the main alarm channel failed]" "$(cat "$TMP/fb" 2>/dev/null)"
+has "notifyCommand fails -> the fallback route" "Sent the backup way: the usual message channel failed" "$(cat "$TMP/fb" 2>/dev/null)"
 chmod 755 "$C/middle-management-canary"
 setup '{"notifyCommand":"exit 1"}'; mkdir -p "$C/middle-management-canary"; chmod 555 "$C/middle-management-canary"
 hook >/dev/null

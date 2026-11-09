@@ -674,16 +674,18 @@ and state under `<config dir>/state/orch-heartbeat/` (one open episode per coord
 - Uninstall: disarm, delete the three unit files, `systemctl --user daemon-reload`, delete
   `<config dir>/middle-management-heartbeat/` and `<config dir>/state/orch-heartbeat/`.
 
-Alarm lines, all latched (none repeats every tick): `coordinator "<name>" stuck since HH:MM`
-(once per episode; poking now) · `coordinator "<name>" is back` (once per episode) ·
-`… has been stuck for over 24 h` (gave up) · `the coordinator (<id>) is gone, not stuck`
-(the process is gone; nothing re-wakes it — someone claims a fresh coordinator) ·
-`heartbeat cannot decide whether … is alive` (hourly: registry or `/proc` unreadable, PID
-reuse) · `heartbeat cannot poke …` (once per episode) · `heartbeat found no transcript` ·
-`heartbeat cannot tell who coordinates` (several `orch*` sessions and no marker; hourly) ·
-`heartbeat: internal error` (hourly; the journal has the line) · `systemd user unit … FAILED`
-from `unit-failure-alarm@` (hourly per unit — it ships the unit's last 8 journal lines, so
-never point it at a unit whose journal can carry a credential).
+Alarm headlines, all latched (none repeats every tick), the coordinator named by its title in
+words: `🔴 Coordinator stuck since HH:MM: <title>` (once per episode; nudging now) ·
+`🟡 Coordinator answers again after N min` (once per episode) · `🔴 Coordinator still stuck
+after 24 h, nudges stopped` (gave up) · `🔴 Coordinator has ended` (the process is gone; nothing
+re-wakes it — someone claims a fresh coordinator) · `⚠️ Cannot tell whether the coordinator still
+runs` (hourly: registry or `/proc` unreadable, PID reuse) · `⚠️ The stuck coordinator cannot be
+nudged` (once per episode) · `⚠️ Coordinator cannot be watched for stalls` (no transcript) ·
+`⚠️ No coordinator is watched: N sessions have a name starting with orch` (no marker; hourly) ·
+`⚠️ The stuck-coordinator check hit a bug` (hourly; the journal has the line) · `🔴 <the job>
+failed` from `unit-failure-alarm@` (hourly per unit — it ships the last 2 lines the unit's own
+process logged, so never point it at a unit whose journal can carry a credential). An hourly
+repeat says since when (`Still so since HH:MM`).
 
 **The poked coordinator** works the checklist in the poke prompt: confirm it still holds the
 seat, reconcile board against roster, re-poke workers whose turn may have died the same
@@ -747,10 +749,11 @@ Optional (setup step 7): `scripts/morning-headless.sh` on a weekday 07:30 timer 
 - **Did it deliver?** `<config dir>/state/morning-ritual/window` carries today's time → yes, and the
   to-dos it sent are in `…/delivered`, so step 6 lists only what came after. No stamp from today →
   run the ritual yourself, step 6 included, as part of taking the seat.
-- **"no progress since <date>"** means nothing moved (session log, board, drops, repo commits) and
-  no model ran; it is not a failure.
-- **A failure** arrives as one headline, the cause (`429`, `401`, `timeout`, `budget`, `other`) and
-  the fix command. A 429 or a probe without an answer is the account's rate limit: the fix is a
+- **"Nothing new since <time>, so no morning report today"** means nothing moved (session log,
+  board, drops, repo commits) and no model ran; it is not a failure.
+- **A failure** arrives as `No morning report today: <cause in words>` (usage limit, login refused,
+  too long, spending cap, or the cause itself), what still works, the one fix command and a raw
+  `Detail:` line. A 429 or a probe without an answer is the account's rate limit: the fix is a
   fallback credential file named by `MM_MORNING_FALLBACK_ENV` in the unit — your user fills it,
   you never read or print it. Details and the port of an older site-local runner: README,
   "Headless morning ritual".

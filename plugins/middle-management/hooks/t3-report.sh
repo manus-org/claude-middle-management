@@ -89,7 +89,7 @@ if [ -f "$MST" ]; then
       printf '%s\n' "$MAT" > "$RDIR/$SID.held" 2>/dev/null
       HFROM=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null | jq -r --arg id "$SID" 'select(.sessionId == $id) | .name | strings' 2>/dev/null | head -1)
       printf '%s\t%s\t%s\tunknown\theld: the morning thread has not claimed the seat yet, so its turns are not sent to the night coordinator until it claims (at most 30 min); read them in that session\n' \
-        "$(date -Is)" "${HFROM:-session ${SID:0:8}}" "$SID" >> "$RDIR/failures.log" 2>/dev/null
+        "$(date -Is)" "${HFROM:-an unnamed session}" "$SID" >> "$RDIR/failures.log" 2>/dev/null
       echo '{"systemMessage":"middle-management: this turn was NOT sent to the coordinator: the morning thread has not claimed the seat yet (it would wake the night coordinator). Your user is told through the watcher; claim first if you are the morning thread."}'
       exit 0
     fi
@@ -133,7 +133,7 @@ if jq -e '[.background_tasks // [] | .[]? | select(type == "object" and .type ==
   [ -n "$TEXT" ] || exit 0
   [ -f "$PEND" ] && [ "$(cat "$PEND.sum" 2>/dev/null)" = "$SUM" ] && exit 0   # same text again (whole sha)
   if [ ! -f "$PEND" ]; then
-    printf '%s\t%s\t%s\tunknown\theld: sub-agent running · %s · %s\n' "$(date -Is)" "${FROM:-session ${SID:0:8}}" "$SID" "$SID" "${SUM:0:12}" \
+    printf '%s\t%s\t%s\tunknown\theld: sub-agent running · %s · %s\n' "$(date -Is)" "${FROM:-an unnamed session}" "$SID" "$SID" "${SUM:0:12}" \
       >> "$RDIR/held.log" 2>/dev/null
     jq -cn --arg t "$(jq -r '.threadId // "?"' "$SIDE" 2>/dev/null)" \
       '{systemMessage: "middle-management: report held while a sub-agent runs; it will be sent with your next turn, or send it now via t3_thread_send \($t)"}'
@@ -159,9 +159,9 @@ if jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1; then
   CLASS=status; grep -qiE "$MARK" <<<"$TEXT" && CLASS=important
   SEND=(python3 "$S/t3-inbox.py" deliver "$SDIR" "$CLASS")
 fi
-MM_SESSION_ID="$SID" MM_SCOPE_CWD="$START" "${GUARD[@]}" "${SEND[@]}" "${FROM:-session ${SID:0:8}}" "$TMP" >/dev/null 2>&1; RC=$?
+MM_SESSION_ID="$SID" MM_SCOPE_CWD="$START" "${GUARD[@]}" "${SEND[@]}" "${FROM:-an unnamed session}" "$TMP" >/dev/null 2>&1; RC=$?
 rm -f "$TMP"
-[ "$RC" = 124 ] && printf '%s\t%s\t%s\tunknown\tsender timed out after %ss\n' "$(date -Is)" "${FROM:-session ${SID:0:8}}" "$SID" \
+[ "$RC" = 124 ] && printf '%s\t%s\t%s\tunknown\tsender timed out after %ss\n' "$(date -Is)" "${FROM:-an unnamed session}" "$SID" \
   "${T3_REPORT_BUDGET:-15}" >> "$RDIR/failures.log" 2>/dev/null
 case "$RC" in
   0) printf '%s\n' "$SUM" > "$RDIR/$SID"; exit 0 ;;

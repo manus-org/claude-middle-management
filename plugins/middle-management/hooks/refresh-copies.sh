@@ -29,7 +29,12 @@ STAMP="$CFG_DIR/state/plugin-version"
 
 fail() {  # $1 = cause
   local text cmd fb latch="$STAMP.failed"
-  text="[$(hostname -s 2>/dev/null || echo host)] middle-management ${V:-?}: the unit copies were NOT refreshed. $1. The units still run the previous version; the next session start retries (or re-run the setup steps of the installed copies)."
+  text="⚠️ Plugin update not applied to the background jobs (middle-management ${V:-?})
+
+They keep running the previous version, which still works.
+The next session start tries again by itself. If this stays, re-run the setup steps of the installed jobs:
+/middle-management-setup
+Detail: $1"
   jq -cn --arg t "middle-management: $text" '{systemMessage: $t}'
   [ "$(cat "$latch" 2>/dev/null)" = "${V:-?}" ] && exit 0   # told once per version already
   mkdir -p "${latch%/*}" 2>/dev/null; printf '%s\n' "${V:-?}" > "$latch" 2>/dev/null
@@ -37,7 +42,9 @@ fail() {  # $1 = cause
   fb="$(jq -r '.notifyFallbackCommand // ""' "$(bash "$S/config-check.sh" file)" 2>/dev/null)"
   # Output dropped: a failing command may echo a URL that carries a token.
   { [ -n "$cmd" ] && printf '%s\n' "$text" | sh -c "$cmd" notify "$text" >/dev/null 2>&1; } \
-    || { [ -n "$fb" ] && text="[fallback route: the main alarm channel failed] $text" \
+    || { [ -n "$fb" ] && text="$text
+
+(Sent the backup way: the usual message channel failed. Please check it.)" \
          && printf '%s\n' "$text" | sh -c "$fb" notify "$text" >/dev/null 2>&1; } \
     || rm -f "$latch"   # not delivered: the next session start tries again
   exit 0

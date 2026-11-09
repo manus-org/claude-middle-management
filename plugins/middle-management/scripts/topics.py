@@ -85,6 +85,14 @@ def fmt(t):
     return time.strftime(TS, time.localtime(t))
 
 
+def when(t):
+    """Local time for a message: 23:30, tomorrow 07:00, Thu 07:00, 16 Nov 07:00 (a week or more away).
+    ponytail: the same eight lines as in t3-watch.py; a shared module for one helper is not worth it."""
+    days = (datetime.date.fromtimestamp(t) - datetime.date.fromtimestamp(now())).days
+    f = {0: "%H:%M", 1: "tomorrow %H:%M", -1: "yesterday %H:%M"}.get(days, "%a %H:%M" if abs(days) < 7 else "%d %b %H:%M")
+    return time.strftime(f, time.localtime(t))
+
+
 def epoch(s):
     try:
         return time.mktime(time.strptime(s, TS))
@@ -603,8 +611,8 @@ def due(sc, st, t):
         if r.get("waits_on"):
             q, rec, qid = r.get("question", ""), r.get("rec", ""), r["key"] + "-q1"
         else:
-            q, rec, qid = "OK to close %s? Review: %s" % (r["key"], r["review"]), "OK", r["key"] + "-ok"
-        lines = ["%s · %s" % (r["key"], q)] + (["rec: " + rec] if rec else [])
+            q, rec, qid = "done and reviewed (%s), OK to close it?" % r["review"], "OK", r["key"] + "-ok"
+        lines = ["%s: %s (since %s)" % (r["key"], q, when(since))] + (["Recommended: " + rec] if rec else [])
         card = {"ticket": r["key"], "title": "%s: %s" % (r["key"], r.get("headline", "")), "url": "",
                 "priority": "", "asked_at": datetime.datetime.fromtimestamp(since).astimezone().isoformat(),
                 "briefing": "Waiting on you since %s.%s%s" % (
@@ -619,8 +627,8 @@ def due(sc, st, t):
                 "after_answers": "topics.py answer --file books each choice or comment"}
         out.append((lk, card, lines))
     for k, text, stamp in user_items(sc):
-        if t - stamp >= h and fresh(k):
-            out.append((k, None, ["%s · %s" % (k, text)]))
+        if t - stamp >= h and fresh(k):    # the key (8 hex of a session id) stays in the ledger, not the text
+            out.append((k, None, ["%s (since %s)" % (STAMP.sub("", text).strip(), when(stamp))]))
     return out
 
 
@@ -676,10 +684,12 @@ def cmd_tick(a):
     sent_digest = sent_daily = False
     if digest:
         link = page(sc, digest) if len(digest) > 3 else None
+        head = "⏳ %d open point%s for you" % (len(digest), " waits" if len(digest) == 1 else "s wait")
         if link:
-            msg = "Waiting on you: %d\nOne page with all of them: %s" % (len(digest), link)
+            msg = "%s\n\nAnswer them on one page: %s" % (head, link)
         else:
-            msg = "\n".join(["Waiting on you: %d" % len(digest)] + [ln for _, _, ls in digest for ln in ls])
+            msg = "\n".join([head, ""] + [("• " if i == 0 else "  ") + ln for _, _, ls in digest for i, ln in enumerate(ls)]
+                            + ["", "Give your answers to the coordinator; it books them."])
             if len(digest) > 3:
                 print("no page (pageCommand missing or failed), inline digest instead")
         rc = send(msg, [k for k, _, _ in digest])
@@ -687,12 +697,17 @@ def cmd_tick(a):
     if daily is not None:
         stale, nook = daily
         if stale or nook:
-            lines = ["Topics digest, scope %s" % sc]
-            lines += ["stale %s · %s · last entry %s" % (r["key"], "waits on " + r["waits_on"] if r.get("waits_on")
-                                                         else r.get("status"), r.get("updated")) for r in stale]
-            lines += ["done without OK %s · %s" % (r["key"], "review " + r["review"] if r.get("review")
-                                                   else "no review") for r in nook]
-            lines.append(stats_line(sc))
+            per = [n for n in stats(sc).values() if n is not None]     # stats_line() in words, for a person
+            lines = ["📋 Topics check: %d stalled, %d done without an OK" % (len(stale), len(nook)), ""]
+            if sc != "default":
+                lines.append("Project: " + (sc.rsplit("-", 1)[0] if scope.AUTO.fullmatch(sc) else sc))
+            lines += ["• %s stalled: %s, last entry %s" % (
+                r["key"], "waits on " + r["waits_on"] if r.get("waits_on") else (r.get("status") or "").replace("-", " "),
+                when(epoch(r.get("updated")) or t)) for r in stale]
+            lines += ["• %s is done: %s" % (r["key"], "reviewed (%s), no OK yet" % r["review"] if r.get("review")
+                                            else "no review yet") for r in nook]
+            lines += [""] + (["Worked on again after their wrap: %d of %d topics." % (sum(1 for n in per if n), len(per))]
+                             if per else []) + ["Nothing to answer; nudge the coordinator if one of them matters."]
             d = send("\n".join(lines), [])
             rc = rc or d
             sent_daily = d == 0

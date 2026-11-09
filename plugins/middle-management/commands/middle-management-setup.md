@@ -491,11 +491,11 @@ unasked.
 ## Step 7 — headless morning ritual (optional, Linux only)
 
 A systemd **user** timer (weekdays 07:30) runs `scripts/morning-headless.sh`: when nothing moved
-since the last delivered ritual it sends one "no progress since <date>" line and starts no model
-at all; otherwise it probes the login in 25 seconds, falls back to a second credential on 429/401
-or no answer, runs the `morning-ritual` skill under a budget and a hard timeout, and sends the day
-plan (your user's to-do list included) through `notifyCommand`. A failure sends one headline, the
-cause and the fix command instead of journal lines. Offer it only when the user wants the ritual
+since the last delivered ritual it sends one short "Nothing new since <time>" note and starts no
+model at all; otherwise it probes the login in 25 seconds, falls back to a second credential on
+429/401 or no answer, runs the `morning-ritual` skill under a budget and a hard timeout, and sends
+the day plan (your user's to-do list included) through `notifyCommand`. A failure sends, in words,
+what failed, what still works and the one fix command instead of journal lines. Offer it only when the user wants the ritual
 waiting on their phone before they sit down; otherwise skip this step and say so.
 
 Preconditions — the same four as step 5 plus `claude` and `timeout` on this PATH. Without a

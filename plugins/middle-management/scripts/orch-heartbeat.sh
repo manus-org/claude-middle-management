@@ -72,10 +72,11 @@ log() { printf '%s\n' "$*" >&2; }   # goes to the journal
 # ponytail: the same lines live in unit-failure-alarm.sh on purpose - the two scripts have
 # different contracts, and coupling them would make the heartbeat's alarm path depend on a
 # script whose job is "a systemd unit failed".
+# The text is written for a person on a phone: emoji + headline, a blank line, one fact per line.
 alarm() {
-  local text="[$(hostname -s 2>/dev/null || echo host)${OHB_SCOPE:+ scope $OHB_SCOPE}] $1" cmd rc=0
-  if [ -n "$ALARM_SINK" ]; then
-    printf '%s\n' "$text" >> "$ALARM_SINK" || log "heartbeat: alarm sink unwritable - $text"
+  local text="$1" cmd rc=0
+  if [ -n "$ALARM_SINK" ]; then   # one alarm per sink line, so the test can count them
+    printf '%s\n' "${text//$'\n'/ | }" >> "$ALARM_SINK" || log "heartbeat: alarm sink unwritable - $text"
     return 0
   fi
   cmd=$(jq -r '.notifyCommand // ""' "$CFG_FILE" 2>/dev/null || true)
@@ -89,25 +90,32 @@ alarm() {
 }
 
 # --- latches: keep a branch that fires in every tick from buzzing the user's phone ----------
-# should_alarm <key> <once|seconds>
+# should_alarm <key> <once|seconds>. A repeating alarm says since when: STREAK is the time of the
+# first alarm of this run of repeats (empty on the first one); a gap of two periods starts anew.
 should_alarm() {
-  local key=$1 ttl=$2 now last cur
-  now=$(date +%s)
+  local key=$1 ttl=$2 now last cur first
+  now=$(date +%s); STREAK=""
   # A corrupt latch file must not INVERT the latch (it would make every branch alarm on every
   # tick, forever): read it defensively and rewrite it from scratch when it is unreadable.
   cur=$(jq -c . "$LATCH" 2>/dev/null) || cur=""
   case "$cur" in ''|null) cur='{}' ;; esac
   last=$(printf '%s' "$cur" | jq -r --arg k "$key" '(.[$k] // 0) | tostring' 2>/dev/null || echo 0)
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  first=$now
   if [ "$ttl" = once ]; then
     [ "$last" -gt 0 ] && return 1
   else
     [ $((now - last)) -lt "$ttl" ] && return 1
+    first=$(printf '%s' "$cur" | jq -r --arg k "$key~since" '(.[$k] // 0) | tostring' 2>/dev/null || echo 0)
+    case "$first" in ''|*[!0-9]*) first=0 ;; esac
+    if [ "$first" -gt 0 ] && [ $((now - last)) -lt $((2 * ttl)) ]; then STREAK=$first; else first=$now; fi
   fi
-  printf '%s' "$cur" | jq -c --arg k "$key" --argjson t "$now" '. + {($k): $t}' \
+  printf '%s' "$cur" | jq -c --arg k "$key" --argjson t "$now" --argjson f "$first" '. + {($k): $t, ($k + "~since"): $f}' \
     > "$LATCH.$$.tmp" && mv "$LATCH.$$.tmp" "$LATCH"
   return 0
 }
+# The line a repeat carries (empty on the first alarm), after should_alarm <key> <seconds>.
+again() { [ -n "${STREAK:-}" ] && printf '\nStill so since %s (this repeats at most every %s min).' "$(when "$STREAK")" "$(( $1 / 60 ))"; return 0; }
 
 # --- classifier ----------------------------------------------------------------------------
 # Ignores every record type except user/assistant, ignores records without a timestamp, ignores
@@ -197,6 +205,38 @@ ep_set()  { # ep_set <id> <k> <v> [<k> <v> ...]   (values are written as strings
 }
 
 hhmm() { date -d "@$1" +%H:%M; }
+# when <epoch>: local time as a person says it: 14:05 · tomorrow 07:00 · yesterday 22:55 · Thu 07:00
+# (within six days) · 12 Nov 07:00 (as t3-watch.py and topics.py). ponytail: the same function lives in unit-failure-alarm.sh,
+# lane-reaper.sh and morning-headless.sh; each runs from its own copy dir, a shared file would need
+# a fifth entry in every copy set.
+when() {
+  local f='%d %b %H:%M' now; now=$(date +%s)
+  case "$(date -d "@$1" +%F)" in
+    "$(date +%F)") f=%H:%M ;;
+    "$(date -d tomorrow +%F)") f='tomorrow %H:%M' ;;
+    "$(date -d yesterday +%F)") f='yesterday %H:%M' ;;
+    *) [ $(( $1 - now )) -lt 518400 ] && [ $(( now - $1 )) -lt 518400 ] && f='%a %H:%M' ;;
+  esac
+  LC_ALL=C date -d "@$1" +"$f"
+}
+# title <sessionId> <fallback>: the session by its title in words (the one the user gave it, else
+# the AI title in its transcript), cut to 45 characters; the fallback when it has neither.
+title() {
+  local f t LC_ALL=C.UTF-8   # so ${#t} counts characters, not bytes
+  f=$(ls -1 "$PROJECTS"/*/"$1".jsonl 2>/dev/null | head -1 || true)
+  [ -n "$f" ] && t=$(grep -hF -e '"custom-title"' -e '"ai-title"' "$f" 2>/dev/null | jq -Rrs '
+      [ split("\n")[] | (fromjson? // empty) ] as $r
+      | ([ $r[] | select(.type == "custom-title") | .customTitle | strings | select(length > 0) ] | last)
+        // ([ $r[] | select(.type == "ai-title") | .aiTitle | strings | select(length > 0) ] | last) // empty' 2>/dev/null || true)
+  t=${t:-$2}
+  [ ${#t} -gt 45 ] && t="${t:0:44}…"
+  printf '%s' "$t"
+}
+# The seat in words: "Coordinator", or "Coordinator of <scope>" for a named scope (README "Scopes");
+# an auto scope of scopeMode per-root (<name>-<6 hex>, scope.py AUTO) without its hash.
+PROJ=${OHB_SCOPE:-}
+[[ $PROJ =~ ^[A-Za-z0-9][A-Za-z0-9_-]*-[0-9a-f]{6}$ ]] && PROJ=${PROJ%-*}
+WHO="Coordinator${PROJ:+ of $PROJ}"
 
 # --- the poke ------------------------------------------------------------------------------
 poke() { # poke <sessionId> <name> <stuck_since_epoch> <poke_number>
@@ -219,21 +259,21 @@ poke() { # poke <sessionId> <name> <stuck_since_epoch> <poke_number>
     printf '%s\n' "$text"; } > "$body"
   python3 "$POKE_SENDER" "$id" "$body" >&2 || rc=$?
   rm -f "$body"
+  local why
   case "$rc" in
-    0) log "heartbeat: poke #$n handed to $name ($id)" ;;
-    2) if [ "$(ep_get "$id" poke_error)" != yes ]; then
-         ep_set "$id" poke_error yes
-         alarm "heartbeat cannot poke coordinator \"$name\": no live session with id ${id:0:8} (poke-session exit 2)"
-       fi ;;
-    3) if [ "$(ep_get "$id" poke_error)" != yes ]; then
-         ep_set "$id" poke_error yes
-         alarm "heartbeat cannot poke coordinator \"$name\": its socket is gone (poke-session exit 3)"
-       fi ;;
-    *) if [ "$(ep_get "$id" poke_error)" != yes ]; then
-         ep_set "$id" poke_error yes
-         alarm "heartbeat cannot poke coordinator \"$name\": poke-session.py exit $rc"
-       fi ;;
+    0) log "heartbeat: poke #$n handed to $name ($id)"; return 0 ;;
+    2) why="Its session is not registered as live any more." ;;
+    3) why="Its session no longer takes messages (its socket is gone)." ;;
+    *) why="The nudge failed." ;;
   esac
+  if [ "$(ep_get "$id" poke_error)" != yes ]; then
+    ep_set "$id" poke_error yes
+    alarm "⚠️ The stuck ${WHO,} cannot be nudged: $(title "$id" "$name")
+
+$why
+Further nudges will probably fail the same way, so please look at its tab.
+Detail: poke-session exit $rc"
+  fi
   return 0
 }
 
@@ -248,7 +288,8 @@ close_foreign_episodes() { # close_foreign_episodes [<current sessionId>]
     # An episode that recovered is deleted on the spot, so an episode still here that was
     # alarmed never recovered - the user heard the "stuck" line and deserves the closing one.
     if [ "$(ep_get "$id" alarmed)" = yes ]; then
-      alarm "heartbeat: episode for coordinator ${id:0:8} closed without a recovery - a different session holds the marker now, or the old one is gone."
+      T=$(title "$id" "")
+      alarm "🟡 No longer watching the stuck ${WHO,}${T:+ $T}: another session holds the seat now, or it has ended."
     fi
     rm -f "$f"
     log "heartbeat: removed foreign episode $id"
@@ -259,7 +300,7 @@ close_foreign_episodes() { # close_foreign_episodes [<current sessionId>]
 limit_cause() { # limit_cause <transcript> <episode start epoch>
   local f=$1 since=$2 r
   # Only a limit whose reset lies AFTER this episode began can be its cause - an older record
-  # still inside the tail window belongs to an earlier episode. Printed with the date, because
+  # still inside the tail window belongs to an earlier episode. when() names the day, because
   # a seven_day limit resets days out and a bare HH:MM would read as "in a few minutes".
   r=$(tail -n "$TAIL_LINES" "$f" | jq -Rsr --argjson since "$since" '
     [ split("\n")[] | select(length > 0) | (fromjson? // empty)
@@ -267,7 +308,7 @@ limit_cause() { # limit_cause <transcript> <episode start epoch>
                and (.error.rateLimits.resetsAt // null) != null
                and .error.rateLimits.resetsAt >= $since)
       | .error.rateLimits.resetsAt ] | max // empty' 2>/dev/null || true)
-  [ -n "$r" ] && printf ' Cause on record: usage limit, reset at %s.' "$(date -d "@$r" +'%d.%m. %H:%M')"
+  [ -n "$r" ] && printf ' It had hit its usage limit (reset %s).' "$(when "$r")"
   return 0
 }
 
@@ -334,7 +375,12 @@ trap 'printf "%s %s\n" "$(date -Is)" "$TICK_NOTE" > "$TICKFILE"' EXIT   # step 1
 # data. In a subshell the trap re-raises; only the main shell alarms and swallows the exit code.
 trap 'rc=$?; if [ "$BASHPID" != "$$" ]; then exit $rc; fi
       if should_alarm internal-error 3600 2>/dev/null; then
-        alarm "heartbeat: internal error (exit $rc, line $LINENO) - journalctl --user -u orch-heartbeat.service"; fi
+        alarm "⚠️ The stuck-coordinator check hit a bug and stopped this run
+
+While it fails, a stuck coordinator can go unnoticed.$(again 3600)
+See what failed:
+journalctl --user -u orch-heartbeat.service -n 50
+Detail: exit $rc at line $LINENO"; fi
       TICK_NOTE="error(exit $rc)"; exit 0' ERR
 
 # 0. Keep-warm runs first and never ends the tick: every branch below may exit early. It is
@@ -346,7 +392,11 @@ trap 'rc=$?; if [ "$BASHPID" != "$$" ]; then exit $rc; fi
 # the default seat is still watched.
 if [ -n "$SCOPED" ] && [ -z "${OHB_SCOPE:-}" ]; then
   LIST=$(python3 "$DIR/scope.py" list) || { LIST=""; should_alarm scopes 3600 \
-    && alarm "heartbeat: scopes are configured but scope.py list failed, only the default seat is watched"; }
+    && alarm "⚠️ Only the main coordinator is watched: the project list cannot be read
+
+The coordinators of the other projects are not checked until it can.$(again 3600)
+Check the scopes in the plugin config: /middle-management-setup
+Detail: scope.py list failed"; }
   while IFS=$'\t' read -r sn sd sb; do
     [ -n "$sn" ] || continue
     log "heartbeat: scope $sn"
@@ -394,7 +444,11 @@ if [ -z "$ID" ] || [ "$LIVENESS" = 1 ]; then
   COUNT=$(printf '%s' "$NAMED" | grep -c . || true)
   if [ "$COUNT" -gt 1 ]; then
     should_alarm "ambiguous" 3600 && \
-      alarm "heartbeat cannot tell who coordinates: $COUNT live sessions named orch* and no valid marker. Not watching anyone until that is resolved."
+      alarm "⚠️ No ${WHO,} is watched: $COUNT sessions have a name starting with orch, and none holds the seat
+
+A stuck coordinator goes unnoticed until one of them claims it.$(again 3600)
+In the session that should coordinate:
+/orchestrator claim"
     TICK_NOTE="ambiguous-coordinator"; exit 0
   elif [ "$COUNT" = 1 ]; then
     ID=$(printf '%s' "$NAMED" | cut -f2); SRC=name
@@ -406,7 +460,13 @@ if [ -z "$ID" ] || [ "$LIVENESS" = 1 ]; then
   elif [ -n "$ID" ] && [ "$SRC" = marker ]; then
     # Marker names a session that is gone and nothing else coordinates: dead, not stuck.
     if should_alarm "dead:$ID" once; then
-      alarm "the coordinator (${ID:0:8}) is gone, not stuck. No re-wake - the regime is down until someone runs /orchestrator claim."
+      T=$(title "$ID" "")
+      alarm "🔴 $WHO has ended${T:+: $T}
+
+Its session is gone, not stuck, and nothing restarts it.
+Until someone takes the seat, the sessions work on their own and no one routes their reports.
+To appoint a new one, in a fresh session:
+/orchestrator claim"
     fi
     close_foreign_episodes ""
     TICK_NOTE="coordinator-dead"; exit 0
@@ -422,7 +482,10 @@ fi
 # that exited between the fallback's two checks.
 if [ "$LIVENESS" != 0 ]; then
   should_alarm "undecidable:$ID" 3600 && \
-    alarm "heartbeat cannot decide whether coordinator ${ID:0:8} is alive (registry or /proc unreadable, PID reuse, or it exited mid-check). Checking again next tick."
+    alarm "⚠️ Cannot tell whether the ${WHO,} still runs$(T=$(title "$ID" ""); printf '%s' "${T:+: $T}")
+
+Checking again at the next run (every 10 min); nothing to do yet.$(again 3600)
+Detail: session registry or process table unreadable, or its process id was reused"
   TICK_NOTE="undecidable"; exit 0
 fi
 
@@ -432,8 +495,12 @@ close_foreign_episodes "$ID"
 # 4. The transcript.
 TRANSCRIPT=$(ls -1 "$PROJECTS"/*/"$ID".jsonl 2>/dev/null | head -1 || true)
 if [ -z "$TRANSCRIPT" ]; then
-  should_alarm "transcript:$ID" once && \
-    alarm "heartbeat found no transcript for coordinator \"$NAME\" (${ID:0:8}) under $PROJECTS - it cannot watch this session."
+  should_alarm "transcript:$ID" once && log "heartbeat: no transcript $ID.jsonl under $PROJECTS" && \
+    alarm "⚠️ $WHO cannot be watched for stalls: $NAME
+
+Its conversation file is not where the heartbeat looks, so a stall there would go unnoticed.
+Everything else works; nothing to do unless this keeps happening.
+Detail: no conversation file for this session under the projects folder (the journal names both)"
   TICK_NOTE="no-transcript"; exit 0
 fi
 
@@ -448,7 +515,7 @@ if [ "$VERDICT" = RECOVERED ]; then
     SINCE=$(ep_get "$ID" stuck_since); SINCE=${SINCE:-0}
     MINS=$(( (NOW - SINCE) / 60 ))
     if [ "$(ep_get "$ID" alarmed)" = yes ]; then
-      alarm "coordinator \"$NAME\" is back (answered again; it was stuck $MINS min since $(hhmm "$SINCE")).$(limit_cause "$TRANSCRIPT" "$SINCE") Its workers were re-poked if it ran the heartbeat checklist."
+      alarm "🟡 $WHO answers again after $MINS min: $(title "$ID" "$NAME").$(limit_cause "$TRANSCRIPT" "$SINCE")"
     fi
     rm -f "$EP"
     log "heartbeat: episode for $ID closed (recovered)"
@@ -487,7 +554,11 @@ fi
 
 if [ "$STUCK_FOR" -ge $((GIVE_UP_H * 60)) ]; then
   ep_set "$ID" stopped yes
-  alarm "coordinator \"$NAME\" has been stuck for over $GIVE_UP_H h (since $(hhmm "$SINCE")). The heartbeat gives up - no more pokes. Check the tab, then claim a fresh coordinator."
+  alarm "🔴 $WHO still stuck after $GIVE_UP_H h, nudges stopped: $(title "$ID" "$NAME")
+
+No answer since $(when "$SINCE"). The heartbeat does not nudge it any more.
+Please look at its tab. To replace it, close that tab, then in a fresh session:
+/orchestrator claim"
   TICK_NOTE="gave up ($NAME)"; exit 0
 fi
 
@@ -498,7 +569,12 @@ fi
 PORT=$(ep_get "$ID" pokes); PORT=${PORT:-0}
 LAST_POKE=$(ep_get "$ID" last_poke); LAST_POKE=${LAST_POKE:-0}
 if [ "$(ep_get "$ID" alarmed)" != yes ]; then
-  alarm "coordinator \"$NAME\" stuck since $(hhmm "$SINCE") ($STUCK_FOR min, no answer to its last turn). Cause unknown until it recovers, heartbeat armed: poking now and then at most every $POKE_EVERY min, giving up after $GIVE_UP_H h. Disarm: systemctl --user disable --now orch-heartbeat.timer"
+  alarm "🔴 $WHO stuck since $(when "$SINCE"): $(title "$ID" "$NAME")
+
+No answer to its last turn for $STUCK_FOR min; the cause is not known yet.
+It gets a nudge now, and then every $POKE_EVERY min, until $(when $((SINCE + GIVE_UP_H * 3600))).
+Look at its tab if you like; otherwise nothing to do. To switch this watch off:
+systemctl --user disable --now orch-heartbeat.timer"
   ep_set "$ID" alarmed yes
   PORT=$((PORT + 1)); poke "$ID" "$NAME" "$SINCE" "$PORT"
   ep_set "$ID" pokes "$PORT" last_poke "$NOW"
