@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.1 - 2026-11-09
+
+**Inbound phone replies under T3, documented.** A team's inbound phone poller (outside the plugin)
+may wake a T3 coordinator through `scripts/t3-wake.sh <from> <file>` with `MM_SESSION_ID=` empty,
+because a peer-message poke cannot reach a thread whose process has ended after T3's idle timeout;
+it counts as delivered only on HTTP 202. The `t3-wake.sh` header lists it as a caller, the README's
+T3 wake paths name it as path (4), and the `middle-management` skill says how such a reply arrives
+(`Report from <from> (thread unknown): ...`). The skill also says a button pressed on the message
+you sent counts as your user's word like a reply-to, when what arrives names the question. Docs only, no behaviour change.
+
 ## 0.16.0 - 2026-11-03
 
 **Review lenses for the maintainer and the async paths.** The review loop's plan lenses grow from ten

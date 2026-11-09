@@ -441,8 +441,11 @@ every thread, hooks included).
   delivered only on HTTP 202. A failure blocks the session once with "report NOT delivered ... send
   it yourself with t3_thread_send <thread>" and lands in `<config-dir>/state/t3-report/failures.log`.
   (2) The watcher, only on an anomaly. (3) The coordinator tasks a worker with `t3_thread_send`,
-  which wakes it, also after settle. A pure retry or liveness ping is the single word `Keepalive`,
-  never wrapped in other text; the answer is exactly `OK`.
+  which wakes it, also after settle. (4) A team's inbound phone poller (outside the plugin) hands
+  the user's reply on with `MM_SESSION_ID= t3-wake.sh <from> <file>`, because a peer-message poke
+  cannot reach a thread whose process has ended; exit 0 only on 202, anything else is not delivered.
+  A pure retry or liveness ping is the single word `Keepalive`, never wrapped in other text; the
+  answer is exactly `OK`.
 - **Asleep is not gone.** A holder whose process ended but whose sidecar names it is "asleep in T3":
   the banner says so instead of "stale", `peer-state.py` shows `asleep (T3)` and a thread column,
   and `claim` / `release <id>` refuse with "wake it: t3_thread_send <id>". `--t3-asleep-ok`
@@ -512,7 +515,7 @@ changes the worker side of the Stop hook; everything else stays as above.
   then for the debounce window: late, not lost. If the inbox cannot be written, the report goes out
   as before, one wrapped turn, also a status report (never lost beats quiet).
 - **Not covered.** A report sent by hand with `t3-wake.sh` (a session outside T3, pathfinder's push,
-  the watcher's own wakes) keeps its own turn. The flag is machine-wide, for every scope.
+  an inbound phone poller, the watcher's own wakes) keeps its own turn. The flag is machine-wide, for every scope.
 - **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the
   update keeps its old hooks (no inbox hook, no Stop drain) until it restarts, e.g. after T3's
   30-min idle end or a new claim. Until then its status reports arrive only inside digests.
