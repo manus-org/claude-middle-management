@@ -79,7 +79,7 @@ validate() {
     and ((.reaperDigestHour // 7) | (type == "number" and . == (. | floor) and . >= 0 and . <= 23))
     # 0.11.0 (README "T3 Code", "Follow-through", "Sub-agents"): the readers fall back to their default
     # on a wrong shape too, but a typo should fail here, loudly.
-    and ([.t3TokenFile, .onLimitCommand, .pageCommand, .userName, .okBy] | all(. == null or type == "string"))
+    and ([.t3TokenFile, .onLimitCommand, .pageCommand, .userName, .okBy, .coordinatorModelRule] | all(. == null or type == "string"))
     and ((.remindAfterHours // 2) | (type == "number" and . > 0))
     and ((.remindWindow // "08:00-22:00") | (type == "string" and test("\\A\\d{1,2}:\\d{2}-\\d{1,2}:\\d{2}\\z")))
     and ((.workPackagesGate // true) | type == "boolean")

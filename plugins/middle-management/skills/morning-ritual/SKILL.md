@@ -47,12 +47,14 @@ asleep in its own T3 thread. Before step 1, in this order:
    `orchestrator.sh claim --thread <currentThreadId> --morning` (`/orchestrator`, "T3 Code" item 7).
    It works only with the user's standing word in the config key `morningTakeover`; a `REFUSED` or
    `BUSY` ends the ritual here: say what the script printed, in this thread, and wait for your user.
-2. Report task + `t3-bind`, as `/orchestrator` "T3 Code" items 2-3 say.
+2. Report task + `t3-bind`, as `/orchestrator` "T3 Code" items 2-3 say. When the claim printed a
+   `Coordinator model:` line, compare your model with it first (`/orchestrator` "T3 Code" item 4).
 3. Settle the predecessor the claim named: `delete_scheduled_task <its report task>` (the id is in
    the `SETTLE` line and in `orchestrator.sh status`), read what it left off disk
-   (`peer-state.py --session-id <its id>`, `open-items.py list`), then settle its thread in step 3
-   below after the loose-ends check. The claim already backfilled its wrap when its log entry was
-   not completed (`BACKFILLED:`). **Never `t3_thread_send` it**: that re-pays its whole context.
+   (`peer-state.py --session-id <its id>`, `open-items.py list`), then settle its thread by the
+   settle check in step 3 below ("T3 Code threads"). The claim already backfilled its wrap when its
+   log entry was not completed (`BACKFILLED:`). **Never `t3_thread_send` it**: that re-pays its
+   whole context.
 4. Run steps 1-7. After the day plan, stop: your user continues in this thread.
 
 ## 1. Messages delta — CUSTOMIZE
@@ -130,12 +132,22 @@ forbidden (the coordinator is its only writer), no pushes, no outward sends. Bel
 75% certainty whose a dirty file is: verify (mtime, transcript grep) or leave it
 uncommitted and flag it — never guess ownership.
 
-**T3 Code threads: settle, never archive.** A thread whose session-log entry carries
-`Session: closed · <sessionId>` but which is still unsettled (`t3_thread_list`; `peer-state.py`
-names the thread) gets settled, together with its sub-agent children, after a check for loose
-ends per thread: last run state, a pending request, open items in its drop file, a dirty
-worktree. Unpin pinned children first (a pinned thread never auto-settles). Never in bulk
-without the list shown first; a thread with a loose end stays and goes to the day plan.
+**T3 Code threads: settle, never archive.** Settling is the coordinator's step, defined here
+once; every other place that settles points here. Candidates are unsettled threads
+whose session-log entry carries `Session: closed · <sessionId>` (`t3_thread_list`; `peer-state.py`
+names the thread). Right before settling, check each one:
+
+- (a) it did what its brief asked: its last report against the brief or the topic's "waits on";
+- (b) every open point of its own wrap sweep (W-items, "your call", handoff) is on the board, by key;
+- (c) no pending request, and no dirty or unpushed worktree it owned, without a line on the board.
+
+All three hold: settle its idle sub-agent children, then the thread:
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/t3-settle.py" --children-of <id>` (a dry run that lists
+them), the same with `--apply`, then `t3-settle.py --apply <id>`. Unpin pinned children first (a
+pinned thread never auto-settles). A thread with a gap stays unsettled and gets a line on the
+board. `t3-settle.py` runs from any context; MCP `t3_thread_organize settle` settles one thread
+per call and only from your own turn or a foreground sub-agent (from a background one it fails
+with `parent_not_active`).
 
 Done when every yesterday-transcript carries one of the five verdicts.
 

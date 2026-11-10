@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.18.0 - 2026-11-10
+
+**Settling is the coordinator's step, with a check right before it.** A worker no longer settles
+its sub-agent threads or itself at the end of its wrap; its closing lines (the literal
+`Close this tab.` stays, `peer-state.py --wrapped` reads it unchanged) now mean "ready for the
+coordinator's settle". The coordinator settles a finished thread only after three checks: it did
+what its brief asked, every open point of its wrap sweep is on the board by key, and no pending
+request or dirty or unpushed worktree of it lacks a board line; then its idle sub-agent children and
+the thread itself. A thread with a gap stays unsettled and gets a board line. The definition lives
+in morning-ritual step 3; the other skills and `/orchestrator` point there. New
+`scripts/t3-settle.py` (`--children-of <threadId>` or `<threadId>...`, dry run unless `--apply`)
+settles over the T3 server's own API with the `t3TokenFile` token, so it works from any context,
+also from a background sub-agent, where MCP `t3_thread_organize` fails with `parent_not_active`
+(one thread per call, own turn or foreground sub-agent only). New optional config key
+`coordinatorModelRule`: every successful `claim` (also `--morning`) prints it in one line telling
+the coordinator to compare its model with it. Correction: `update_scheduled_task` does not change a
+task's model; after a model change the coordinator creates a new report task from the thread on the
+new model, `t3-bind`s it and deletes the old one (`/orchestrator`, the `t3-bind` output and the T3
+coordinator banner say so), and the morning task's model is set in the T3 web UI. Cause: on
+2026-11-10 about 76 idle sub-agent threads stayed unsettled after a background sweep, and a
+re-saved report task kept its old model.
+
 ## 0.17.0 - 2026-11-10
 
 **Notify messages read like a note from a colleague.** Every text the plugin sends through

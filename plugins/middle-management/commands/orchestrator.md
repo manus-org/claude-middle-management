@@ -77,8 +77,12 @@ coordinator's thread (README, "T3 Code"). A script cannot call MCP tools, so you
 3. **Bind:** `orchestrator.sh t3-bind --thread <id> --title <title> --task <taskId> --model <model>`,
    with the task's URL on **stdin** (never in argv, never printed, never in a reply). It writes the
    sidecar 0600 and, on a takeover, wakes the previous holder once.
-4. **Model or effort change:** `update_scheduled_task` on the report task (or claim + t3-bind again).
-   A webhook run keeps the model the task was created with.
+4. **Model or effort change:** a webhook run keeps the model the task was created with, also after
+   `update_scheduled_task` (a re-save keeps the old model). After a change, create a NEW report task
+   from this thread on the new model (item 2), `t3-bind` it (item 3), then `delete_scheduled_task`
+   the old one. **Coordinator model:** when `claim` prints a `Coordinator model:` line, compare your
+   model with that rule (`orchestrator_capabilities` lists the available models); if a better match
+   is available, tell your user that first and recreate your report task on it.
 5. **Handover:** launch the successor thread (`t3_thread_launch`), then
    `orchestrator.sh t3-handover --to-thread <id> --to-title <title>`. Keep seat and report task
    until the successor has claimed; forward late reports to it with `t3_thread_send`.
@@ -95,7 +99,8 @@ coordinator's thread (README, "T3 Code"). A script cannot call MCP tools, so you
    backfills the holder's wrap when its session-log entry is not completed, keeps the holder's
    thread and report task on record (`status` shows them as "Predecessor" until `t3-bind`, then as
    "previous holder"), and prints the settle step: `delete_scheduled_task <its report task>`, then
-   settle its thread (morning-ritual step 3). Never `t3_thread_send` the predecessor. A live holder
+   settle its thread after the settle check (morning-ritual step 3, "T3 Code threads"). Never
+   `t3_thread_send` the predecessor. A live holder
    is not taken by `--morning`: the stale and expired rules above apply as for any claim. Every exit of
    `claim --morning` records its outcome (`claimed` / `refused`) for the morning trigger, and a
    refusal notifies the user: the night coordinator keeps the seat.

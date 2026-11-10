@@ -410,9 +410,10 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   a lost report, an open handover or a folder without coordinator; for what the coordinator must
   do it wakes the coordinator. It also renders the topics table and sends the reminders
   (README, "Follow-through").
-- **Settle, never archive.** A worker settles its own sub-agent threads and then itself as the
-  last calls of its wrap. A T3 worktree (`~/.t3/worktrees/`) belongs to T3: the worker never
-  removes it.
+- **Settle, never archive.** Settling is the coordinator's step, with a completeness check right
+  before it (`middle-management:morning-ritual` step 3, "T3 Code threads", the one definition).
+  A worker settles nothing (`middle-management:wrap`, "In a T3 Code thread"). A T3 worktree
+  (`~/.t3/worktrees/`) belongs to T3: the worker never removes it.
 - **Per folder.** With `scopeMode: "per-root"` every project root is its own scope with its own
   seat, sidecar, topics file and watcher pass, and there is no catch-all: a session outside
   every claimed root runs standalone and wakes nobody.

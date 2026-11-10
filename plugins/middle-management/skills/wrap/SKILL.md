@@ -209,11 +209,10 @@ otherwise to your user in chat; the **recap** goes in the tab, never through `no
 
 **In a T3 Code thread** (`T3CODE_HOME` set) whose coordinator is bound to a thread: your report is
 the last text of this turn, and the plugin's Stop hook delivers it. No peer message to a T3
-coordinator. Tools first, recap last: only the final text block arrives. The last tool calls of
-the wrap settle, never archive: `t3_thread_organize settle` for each of your own sub-agent threads
-(`t3_thread_list` with sub-agents, filtered on `parentThreadId` = your thread), then the plain
-`settle` without a thread id for yourself (it takes effect when the turn completes). Settled is
-not gone: the coordinator re-opens you with `t3_thread_send`, you go on with your context, and
-your next wrap writes a new closed marker. A former coordinator forwards late reports to its
-successor with `t3_thread_send` and deletes its old report task (`delete_scheduled_task`) as
-the step before the settles.
+coordinator. Tools first, recap last: only the final text block arrives. The settle is the
+coordinator's step after its completeness check (`middle-management:morning-ritual` step 3, "T3
+Code threads"): your closing lines mean "ready for the coordinator's settle", so you leave
+yourself and your sub-agent threads as they are and end on those lines. Settled is not gone: the
+coordinator re-opens you with `t3_thread_send`, you go on with your context, and your next wrap
+writes a new closed marker. A former coordinator forwards late reports to its successor with
+`t3_thread_send` and deletes its old report task (`delete_scheduled_task`).

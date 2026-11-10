@@ -8,6 +8,7 @@
 #   D  scopeMode per-root: two roots, no catch-all, a standalone session
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
+#   H  coordinatorModelRule: the claim line (plain and --morning), config-check validate
 #   Z  no webhook URL in any output
 # The takeover wake runs the REAL t3-wake.sh against a local HTTP stub that logs the request path.
 set -uo pipefail
@@ -65,7 +66,7 @@ has "t3-bind without a URL -> refused" "REFUSED: stdin carries no usable" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-bind --thread mcp:t-c1 --title "coord one"); has "t3-bind missing flags -> usage" "Usage: orchestrator.sh t3-bind" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" w1 "$H" t3-bind --thread x --title x --task x --model x); has "t3-bind by a non-holder -> refused" "REFUSED: this session does not hold" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-bind --thread mcp:t-c1 --title "coord one" --task task-1 --model fable); ALL="$ALL$OUT"
-has "t3-bind -> OK" "OK: T3 thread mcp:t-c1" "$OUT"; has "...names the model-change rule" "update_scheduled_task task-1" "$OUT"
+has "t3-bind -> OK" "OK: T3 thread mcp:t-c1" "$OUT"; has "...names the model-change rule" "t3-bind it, then delete_scheduled_task task-1" "$OUT"
 is "...sidecar mode 0600" "$(stat -c %a "$SIDE")" 600
 is "...sidecar fields" "$(jq -c '[.sessionId,.threadId,.title,.model,.reportTaskId,(.reportUrl|length>0),has("previous")]' "$SIDE")" '["sess-c1","mcp:t-c1","coord one","fable","task-1",true,false]'
 OUT=$(as_s "$H" c1 "$H" status); ALL="$ALL$OUT"; has "status shows thread + title" 'thread mcp:t-c1 "coord one"' "$OUT"
@@ -143,7 +144,7 @@ as_s "$H" c1 "$H" claim >/dev/null; printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-b
 me "$H" c1 "$H"; live "$H" w1 "$H" >/dev/null
 OUT=$(role "$H" sess-c1); ALL="$ALL$OUT"
 has "T3 coordinator banner" "Session role: ORCHESTRATOR" "$OUT"
-has "...update the report task on a model change" "update_scheduled_task on the" "$OUT"
+has "...a new report task on a model change" "After a model or effort change: a NEW report task" "$OUT"
 has "...no t3_thread_wait after t3_thread_send" "do not t3_thread_wait after" "$OUT"
 has "...forward late reports after a takeover" "forward every report that" "$OUT"
 has "...Keepalive -> OK" 'exactly "Keepalive": answer exactly "OK"' "$OUT"
@@ -306,6 +307,22 @@ printf '%s\n' "$U2" | as_s "$H" m2 "$H" t3-bind --thread mcp:t-m2 --title m2 --t
 is "a foreign note is not filed as previous" "$(jq -r 'has("previous")' "$SIDE")" false
 printf '{"by":"sess-m2"}\n' > "$PF"; as_s "$H" m2 "$H" release >/dev/null
 [ -e "$PF" ] && bad "release drops the note" gone present || ok "release drops the note"
+
+echo "== H: coordinatorModelRule =="
+H=$(new_home); CF=$H/.claude/middle-management.json
+OUT=$(as_s "$H" h1 "$H" claim); lacks "no key -> no model line" "Coordinator model:" "$OUT"
+printf '{"coordinatorModelRule":"  "}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); lacks "blank key -> no model line" "Coordinator model:" "$OUT"
+printf '{"coordinatorModelRule":"the highest available Fable"}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); has "key set -> the model line" "Coordinator model: the highest available Fable. Compare your model" "$OUT"
+has "...names orchestrator_capabilities and item 4" 'orchestrator_capabilities lists the available models); if a better match is available, tell your user first and recreate your report task on it (/orchestrator "T3 Code" item 4)' "$OUT"
+g_home "3 hours ago"; jq '.coordinatorModelRule = "the highest available Fable"' "$H/.claude/middle-management.json" > "$TMP/x"; cp "$TMP/x" "$H/.claude/middle-management.json"
+OUT=$(as_s "$H" m1 "$H" claim --thread mcp:t-m1 --morning); has "--morning claim -> the model line too" "Coordinator model: the highest available Fable." "$OUT"
+vcfg() { printf '%s' "$1" > "$TMP/vc/middle-management.json"; CLAUDE_CONFIG_DIR="$TMP/vc" bash "$P/scripts/config-check.sh" validate >/dev/null 2>&1; echo $?; }
+mkdir -p "$TMP/vc"
+is "config-check: a string is valid" "$(vcfg '{"coordinatorModelRule":"the highest Fable"}')" 0
+is "config-check: blank is valid" "$(vcfg '{"coordinatorModelRule":""}')" 0
+is "config-check: a number is rejected" "$(vcfg '{"coordinatorModelRule":5}')" 1
 
 echo "== Z =="
 lacks "no webhook secret in any output" "$S1" "$ALL"; lacks "...nor the second" "$S2" "$ALL"

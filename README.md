@@ -258,6 +258,10 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
 - `quietReports` (optional, 0.15.0, default off): `{"enabled": true, "fallbackMin": 20,
   "debounceMin": 10}` sends worker reports into an awake T3 coordinator without a turn each.
   Machine-wide: it switches the coordinator of every scope. See [Quiet reports](#quiet-reports).
+- `coordinatorModelRule` (optional, 0.18.0, default none): the model the coordinator should run
+  on, in the user's words. Every successful `claim` (also `--morning`) prints it in one line that
+  tells the session to compare its model with it and, on a better match, to tell the user and
+  recreate its report task there. Absent or blank prints nothing.
 - `morningTakeover`, `morningTaskUrlFile`, `morningWaitUntil`, `morningRoot` (optional, 0.11.1):
   the morning chain under T3 Code. See [Morning coordinator in T3 Code](#morning-coordinator-in-t3-code).
 - `replyTimestamp`, `intentCheck`, `intentCheckVerbs` (optional, 0.11.1, defaults `false` /
@@ -468,11 +472,14 @@ every thread, hooks included).
   ([Quiet reports](#quiet-reports)). API trouble is one notify per kind and day.
   `--dry-run` sends nothing, `--stats` counts posts per thread and day. State:
   `<config-dir>/state/t3-watch/`, `<config-dir>/state/t3-report/{failures.log,posts.tsv}`.
-- **Settle, not archive.** A worker's wrap ends with `t3_thread_organize settle` for its own
-  sub-agent threads, then for itself. The coordinator re-opens a settled worker with
-  `t3_thread_send`. The morning ritual settles threads whose log entry is closed, after a
-  loose-ends check, and removes a T3 worktree only when merged and settled. Nothing archives or
-  deletes threads. The heartbeat skips a coordinator with a sidecar; poke and keep-warm do not
+- **Settle, not archive.** Settling is the coordinator's step: a worker settles nothing, its
+  wrap's closing lines mean "ready for the coordinator's settle". The coordinator checks each
+  finished thread right before settling it (brief done, every open point on the board, no pending
+  request or unbacked worktree; morning-ritual step 3), then settles its idle sub-agent children
+  and the thread with `scripts/t3-settle.py` (`--children-of <id>` / `<id>...`, dry run unless
+  `--apply`; over the T3 server's API with the `t3TokenFile` token, so it works from any context,
+  also a background sub-agent). It re-opens a settled worker with `t3_thread_send`, and removes a
+  T3 worktree only when merged and settled. Nothing archives or deletes threads. The heartbeat skips a coordinator with a sidecar; poke and keep-warm do not
   apply in T3.
 
 ### Quiet reports
@@ -547,7 +554,8 @@ messaged: waking it would make it re-pay its whole context for a seat it is abou
    = a fresh top-level thread), a fixed prompt (setup step 7b prints it; no `{{body…}}`
    placeholders, so the URL starts nothing but that prompt), and `maxDeliveryAgeMinutes` (e.g.
    `120`) so a request the relay held overnight does not start a thread at noon. Model and runtime
-   are inherited from the creating thread: `update_scheduled_task` changes them.
+   are inherited from the creating thread; change the model later in the T3 web UI (a re-save over
+   MCP with `update_scheduled_task` keeps the old one).
 
    **Workspace: set it to the project checkout by hand.** T3 0.1.0 stores every unbound task created
    over MCP with the workspace `{"type":"worktree","baseRef":"main","startFromOrigin":true}`, and MCP
@@ -571,7 +579,7 @@ messaged: waking it would make it re-pay its whole context for a seat it is abou
    files it as `previous` and wakes nobody), backfills the holder's wrap entry when it carries no
    closed marker and its log entry is not completed (the same append-only `backfill` as an expired
    seat), and prints the settle step: `delete_scheduled_task <its report task>`, then settle its
-   thread in the ritual (step 3). A gone holder outside T3 is taken as before, plus the backfill.
+   thread after the ritual's settle check (step 3). A gone holder outside T3 is taken as before, plus the backfill.
    A live holder is never taken by `--morning`: the stale and expired rules apply.
 4. **No wake into the night coordinator while the claim is pending.** From the POST until the
    morning thread's claim (status `posted`; every exit of `claim --morning` turns it into `claimed`

@@ -515,6 +515,11 @@ case "${1:-status}" in
     if [ "$WIN" -lt "$MIDNIGHT" ]; then
       echo "No morning ritual was delivered today — run middle-management:morning-ritual now (step 6, your user's to-do list, at least)."
     fi
+    # 0.18.0 (README, configuration list): the user's rule for the coordinator's model, on every claim.
+    RULE=$(jq -r '.coordinatorModelRule | strings | select(test("\\S"))' "$(bash "$DIR/config-check.sh" file)" 2>/dev/null)
+    if [ -n "$RULE" ]; then
+      echo "Coordinator model: $RULE. Compare your model with it (in T3: orchestrator_capabilities lists the available models); if a better match is available, tell your user first and recreate your report task on it (/orchestrator \"T3 Code\" item 4)."
+    fi
     if rc_off; then
       echo ""
       echo "Remote Control is disabled at startup on this machine — coordinator sessions"
@@ -617,7 +622,7 @@ case "${1:-status}" in
       || { echo "FAILED: could not write $SIDE. Nothing is bound; delete the report task or retry."; exit 1; }
     rm -f "$PREVF"
     echo "OK: T3 thread $F_THREAD (\"$F_TITLE\") bound to the seat, report task $F_TASK, model $F_MODEL."
-    echo "After a model or effort change: update_scheduled_task $F_TASK (or claim + t3-bind again)."
+    echo "After a model or effort change: a new report task from the thread on the new model, t3-bind it, then delete_scheduled_task $F_TASK."
     ;;
   t3-handover)
     # The outgoing holder names its successor right after launching its thread (wake-flow.md step 1).

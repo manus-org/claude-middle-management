@@ -167,8 +167,8 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
         printf 'themselves as turns of this thread (their Stop hook). Task or ask a worker with t3_thread_send <its thread id>\n'
       fi
       printf '(that wakes it, also after settle); never peer-message or poke a T3 thread, and do not t3_thread_wait after\n'
-      printf 't3_thread_send: the answer comes by itself. After a model or effort change: update_scheduled_task on the\n'
-      printf 'report task (or claim + t3-bind again), else the report turns keep the old model. Handover: launch the\n'
+      printf 't3_thread_send: the answer comes by itself. After a model or effort change: a NEW report task from this\n'
+      printf 'thread, t3-bind it, delete_scheduled_task the old one (a re-save keeps the old model). Handover: launch the\n'
       printf 'successor thread, then orchestrator.sh t3-handover --to-thread <id> --to-title <t>; keep seat and report task\n'
       printf 'until it claims. Once a wake "seat taken over by ..." arrives you are a worker: forward every report that\n'
       printf 'still reaches you to the successor with t3_thread_send, finish your wrap, delete your report task last.\n'
