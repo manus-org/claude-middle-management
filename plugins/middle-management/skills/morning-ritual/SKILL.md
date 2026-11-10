@@ -145,7 +145,7 @@ All three hold: settle its idle sub-agent children, then the thread:
 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/t3-settle.py" --children-of <id>` (a dry run that lists
 them), the same with `--apply`, then `t3-settle.py --apply <id>`. Unpin pinned children first (a
 pinned thread never auto-settles). A thread with a gap stays unsettled and gets a line on the
-board. `t3-settle.py` runs from any context; MCP `t3_thread_organize settle` settles one thread
+board. `t3-settle.py` settles other threads' children (for the children of your own live thread use MCP `t3_thread_organize` in your own turn); MCP `t3_thread_organize settle` settles one thread
 per call and only from your own turn or a foreground sub-agent (from a background one it fails
 with `parent_not_active`).
 

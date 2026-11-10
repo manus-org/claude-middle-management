@@ -481,8 +481,8 @@ every thread, hooks included).
   finished thread right before settling it (brief done, every open point on the board, no pending
   request or unbacked worktree; morning-ritual step 3), then settles its idle sub-agent children
   and the thread with `scripts/t3-settle.py` (`--children-of <id>` / `<id>...`, dry run unless
-  `--apply`; over the T3 server's API with the `t3TokenFile` token, so it works from any context,
-  also a background sub-agent). It re-opens a settled worker with `t3_thread_send`, and removes a
+  `--apply`; over the T3 server's API with the `t3TokenFile` token, so it works from a background sub-agent too;
+  it settles other threads' children, for the children of your own live thread use MCP `t3_thread_organize` in your own turn). It re-opens a settled worker with `t3_thread_send`, and removes a
   T3 worktree only when merged and settled. Nothing archives or deletes threads. The heartbeat skips a coordinator with a sidecar; poke and keep-warm do not
   apply in T3.
 
@@ -841,6 +841,8 @@ plugin never degrades silently. While the config is invalid, the worktree guard 
 
 ## Honesty notes
 
+- `t3-settle.py` judges "idle" from T3's thread list; a sub-agent child whose parent is not in the list
+  is guarded only by the 120 s quiet check, and what T3 does with a settle sent to a working sub-agent is untested.
 - The worktree guard is a **guardrail, not a security boundary**: it intercepts the
   Edit/Write tools, not Bash-side writes (`sed -i`, redirects, `git checkout`).
 - The staging guard's escape hatch: only when your user explicitly allows a direct

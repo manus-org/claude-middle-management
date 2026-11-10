@@ -49,7 +49,12 @@ kid() {  # id parent [extra json]
   kid kid-fresh mcp:parent ",\"updatedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""; printf ','
   kid kid-other mcp:other; printf ','
   printf '{"id":"mcp:runpar","title":"Running parent","status":"running","activityRunStatus":"running","settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[]},'
-  kid kid-underrun mcp:runpar
+  kid kid-underrun mcp:runpar; printf ','
+  printf '{"id":"mcp:np","title":"NP","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[]},'
+  kid kid-npfresh mcp:np ",\"updatedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""; printf ','
+  printf '{"id":"mcp:op","title":"OP","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[]},'
+  kid kid-opold mcp:op; printf ','
+  printf '{"id":"mcp:mon","title":"MON","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[{"kind":"monitor","id":"pull-request-watch:1"}]}'
   printf '],"archivedThreads":[{"id":"arch-1"}],"projects":[]}\n'
 } > "$D/shell.json"
 cp "$D/shell.json" "$TMP/shell.good"
@@ -134,6 +139,19 @@ run --apply kid-underrun
 is "naming it is refused, exit 1" "$RC" 1
 has "REFUSED with the live-parent reason" "REFUSED kid-underrun: not idle: its parent's run is live" "$OUT"
 is "nothing sent" "$(srv)" ""
+
+echo "A3. parent with sub-agent children / monitor entries"
+run --apply mcp:np
+is "parent under a fresh child is refused, exit 1" "$RC" 1
+has "REFUSED with the child reason" "REFUSED mcp:np: not idle: a sub-agent of it was active in the last 120 s" "$OUT"
+is "nothing sent" "$(srv)" ""
+run --apply mcp:op
+is "parent with only an old child settles" "$RC" 0
+has "settled" "settled mcp:op" "$OUT"
+run --apply mcp:mon
+is "a monitor entry without childThreadId is not busy" "$RC" 0
+has "monitor thread settled" "settled mcp:mon" "$OUT"
+: > "$D/srv.log"
 
 echo "B. --apply one named thread"
 run --apply kid-a

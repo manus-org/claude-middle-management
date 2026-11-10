@@ -100,6 +100,18 @@ def why_not(t, live_kids, busy, by_id):
         return "sub-agent still running (listed in its parent's pendingBackgroundTasks)"
     if t["id"] in busy:
         return "its own sub-agent is still running (pendingBackgroundTasks)"
+    if (t.get("lineage") or {}).get("relationshipToParent") != "subagent":
+        # right after a run completes pendingBackgroundTasks can be empty while sub-agents still work
+        for c in by_id.values():
+            cl = c.get("lineage") or {}
+            if cl.get("parentThreadId") == t["id"] and cl.get("relationshipToParent") == "subagent" \
+                    and not (c.get("settledAt") or c.get("archivedAt") or c.get("deletedAt")):
+                try:
+                    cage = time.time() - datetime.datetime.fromisoformat(str(c.get("updatedAt")).replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    cage = 0
+                if cage < QUIET_S:
+                    return "a sub-agent of it was active in the last %d s" % QUIET_S
     if (t.get("lineage") or {}).get("relationshipToParent") == "subagent":
         # a running parent does not list its working sub-agents yet (the list fills when its run
         # completes), so a live parent protects them; a parent missing from the list: quiet check only
@@ -232,8 +244,9 @@ def main(argv):
     body = shell(base, tok)
     rows = {t["id"]: t for t in body["threads"]}
     live_kids = {k.get("childThreadId") for t in body["threads"] for k in (t.get("pendingBackgroundTasks") or [])
-                 if isinstance(k, dict)}
-    busy = {t["id"] for t in body["threads"] if t.get("pendingBackgroundTasks")} | {
+                 if isinstance(k, dict) and k.get("childThreadId")}
+    busy = {t["id"] for t in body["threads"] if any(
+        isinstance(k, dict) and k.get("childThreadId") for k in (t.get("pendingBackgroundTasks") or []))} | {
         (t.get("lineage") or {}).get("parentThreadId") for t in body["threads"] if t["id"] in live_kids}
     archived = {t.get("id") for t in body.get("archivedThreads") or [] if isinstance(t, dict)}
     refused, todo, skipped = [], [], []   # refused: (id, reason), never sent to the server

@@ -11,8 +11,7 @@ request or dirty or unpushed worktree of it lacks a board line; then its idle su
 the thread itself. A thread with a gap stays unsettled and gets a board line. The definition lives
 in morning-ritual step 3; the other skills and `/orchestrator` point there. New
 `scripts/t3-settle.py` (`--children-of <threadId>` or `<threadId>...`, dry run unless `--apply`)
-settles over the T3 server's own API with the `t3TokenFile` token, so it works from any context,
-also from a background sub-agent, where MCP `t3_thread_organize` fails with `parent_not_active`
+settles over the T3 server's own API with the `t3TokenFile` token, so it works from a background sub-agent too (it settles other threads' children; for the children of your own live thread use MCP `t3_thread_organize` in your own turn), where MCP `t3_thread_organize` fails with `parent_not_active`
 (one thread per call, own turn or foreground sub-agent only). New optional config key
 `coordinatorModelRule`: every successful `claim` (also `--morning`) prints it in one line telling
 the coordinator to compare its model with it. Correction: `update_scheduled_task` does not change a
