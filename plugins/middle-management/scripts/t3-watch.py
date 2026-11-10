@@ -53,7 +53,7 @@ The T3 server: config t3Url, default http://127.0.0.1:$T3CODE_PORT (8470 when un
 Env: T3CODE_PORT, T3W_NOW (epoch, test seam), CLAUDE_CONFIG_DIR.
 Exit 0, or 1 when a notify could not be delivered (systemd's OnFailure alarm then fires).
 """
-import collections, importlib.util, json, os, re, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import collections, datetime, importlib.util, json, os, re, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -96,11 +96,50 @@ def save(path, value):
     os.replace(tmp, path)
 
 
+def cut(s, n=45):
+    """A title or a detail for a message: whitespace folded, cut at n chars with an ellipsis."""
+    s = " ".join(str(s).split())
+    return s if len(s) <= n else s[:n - 1].rstrip() + "…"
+
+
+def title_of(t):
+    return cut(t.get("title") or "untitled session")
+
+
+def when(t):
+    """Local time for a message: 23:30, tomorrow 07:00, Thu 07:00, 16 Nov 07:00 (a week or more away)."""
+    days = (datetime.date.fromtimestamp(t) - datetime.date.fromtimestamp(NOW)).days
+    f = {0: "%H:%M", 1: "tomorrow %H:%M", -1: "yesterday %H:%M"}.get(days, "%a %H:%M" if abs(days) < 7 else "%d %b %H:%M")
+    return time.strftime(f, time.localtime(t))
+
+
+def iso_epoch(s):
+    """An ISO timestamp (T3's usageLimitResetAt, `date -Is`) as epoch, None when it does not parse."""
+    try:
+        return datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def iso_when(s):
+    e = iso_epoch(s)
+    return "" if e is None else when(e)
+
+
+def project(scope_name):
+    """A named scope in words ("" for default and the global "all"); an auto scope without its hash."""
+    if scope_name in ("default", "all"):
+        return ""
+    return scope_name.rsplit("-", 1)[0] if scope.AUTO.fullmatch(scope_name) else scope_name
+
+
 def notify(scope_name, headline, facts=()):
-    """One message through notifyCommand: the headline, then one fact per line."""
+    """One plain-text message through notifyCommand: the headline (kind emoji first), a blank line,
+    then one fact per line ("" = a blank line), the action last; a named scope adds a Project line."""
     global NOTIFY_FAILED
-    text = "\n".join(["t3-watch %s, scope %s: %s" % (socket.gethostname().split(".")[0], scope_name, headline)]
-                     + [str(f) for f in facts])
+    p = project(scope_name)
+    body = (["Project: " + p] if p else []) + [str(f) for f in facts]
+    text = "\n".join([headline] + ([""] + body if body else []))
     if DRY:
         print("NOTIFY  " + text.replace("\n", "\n        "))
         return
@@ -169,11 +208,25 @@ def probe(model):
     return None
 
 
-def api_problem(gstate, kind, facts):
-    """One notify per kind and day; the tick then skips the T3 part."""
+def api_problem(gstate, kind, headline, action, detail):
+    """One notify per kind and day; the tick then skips the T3 part. What still runs without the
+    T3 API, as main() does it: report_lost, the topics tick and the inbox tick."""
     if gstate.setdefault("api", {}).get(kind) != TODAY:
         gstate["api"][kind] = TODAY
-        notify("all", kind, facts)
+        notify("all", "⚠️ T3 watcher paused: " + headline, still(gstate, kind) + [
+            "Until it is fixed, you get no notices about usage limits or waiting, stuck or failed sessions.",
+            "Lost reports and topic reminders still come through.", action, "Detail: " + detail])
+
+
+def still(gstate, kind):
+    """The daily repeat of a problem that lasts names its first notice; gstate["since"][kind] is
+    cleared when it is gone (fetch_shell's good answer, a tick without an internal error)."""
+    since = gstate.setdefault("since", {}).setdefault(kind, NOW)
+    return ["Still so since %s (this repeats once a day)." % when(since)] if since < NOW else []
+
+
+T3_NEWER = "T3 Code was probably updated: update this plugin, or tell its maintainer."
+NEW_TOKEN = "Fix: run /middle-management-setup, step 8 (T3 Code watcher), for a new token."
 
 
 def t3_url():
@@ -188,13 +241,14 @@ def fetch_shell(gstate):
     try:
         st = os.stat(path)
         if st.st_mode & 0o077:
-            api_problem(gstate, "T3 token file is readable by group/other, refused",
-                        [path, "fix: chmod 600 " + path])
+            api_problem(gstate, "token-mode", "its token file is readable by others", "Fix: chmod 600 " + path,
+                        "it refuses a token file that group or other can read")
             return None
         with open(path, encoding="utf-8") as f:
             tok = f.read().strip()
     except OSError:
-        api_problem(gstate, "T3 token file missing", [path, "config key t3TokenFile"])
+        api_problem(gstate, "token-missing", "its T3 token is missing", NEW_TOKEN,
+                    "no token file at %s (config key t3TokenFile)" % path)
         return None
     base = t3_url()
     req = urllib.request.Request(base.rstrip("/") + "/api/orchestration/shell", headers={
@@ -204,16 +258,17 @@ def fetch_shell(gstate):
             body = json.load(r)
     except urllib.error.HTTPError as e:
         if e.code == 400:
-            api_problem(gstate, "T3 API changed", ["GET /api/orchestration/shell answered 400",
-                                                   "check the protocol header (plugin README, \"T3 Code\")"])
+            api_problem(gstate, "api-changed", "it no longer understands T3 Code", T3_NEWER,
+                        "the thread list answered HTTP 400 (protocol header, plugin README \"T3 Code\")")
         elif e.code in (401, 403):
-            api_problem(gstate, "T3 token rejected", ["HTTP %d" % e.code, path])
+            api_problem(gstate, "token-rejected", "T3 Code rejects its token", NEW_TOKEN, "HTTP %d" % e.code)
         else:
             return down(gstate, "HTTP %d" % e.code)
         return None
     except (urllib.error.URLError, OSError, ValueError) as e:
         if isinstance(e, ValueError):
-            api_problem(gstate, "T3 API changed", ["the shell answer is not JSON"])
+            api_problem(gstate, "api-changed", "it no longer understands T3 Code", T3_NEWER,
+                        "the thread list answer is not JSON")
             return None
         return down(gstate, e.__class__.__name__)
     gstate["down"] = 0
@@ -222,9 +277,10 @@ def fetch_shell(gstate):
         and all(isinstance(t, dict) and all(k in t for k in REQUIRED) for t in body["threads"]) \
         and all(isinstance(p, dict) and "id" in p and "workspaceRoot" in p for p in body["projects"])
     if not ok:
-        api_problem(gstate, "T3 API changed", ["the shell answer lacks keys the watcher reads",
-                                               "needed per thread: " + ", ".join(REQUIRED)])
+        api_problem(gstate, "api-changed", "it no longer understands T3 Code", T3_NEWER,
+                    "the thread list lacks keys the watcher reads")
         return None
+    gstate["since"] = {k: v for k, v in gstate.get("since", {}).items() if k == "internal"}  # the API is fine again
     return body
 
 
@@ -232,7 +288,8 @@ def down(gstate, why):
     """The server did not answer: a T3 restart lasts one tick, so only the second miss notifies."""
     gstate["down"] = int(gstate.get("down", 0)) + 1
     if gstate["down"] >= 2:
-        api_problem(gstate, "T3 server unreachable", [why, "%d ticks in a row" % gstate["down"]])
+        api_problem(gstate, "down", "T3 Code does not answer", "Check that T3 Code is running.",
+                    "%s, %d checks in a row" % (why, gstate["down"]))
     return None
 
 
@@ -304,21 +361,22 @@ def check_scope(name, sdir, side, shell, ss):
     threads, coord = threads_of(shell, name, ss, coord_id)
     is_coord = lambda t: coord is not None and t["id"] == coord["id"]  # noqa: E731
     pending = morning_pending(sdir)
-    held = "the night coordinator %s is NOT woken: today's morning thread has not claimed the seat yet" % (
-        side.get("title") or coord_id or "?")
+    old = '"%s"' % cut(side["title"]) if side.get("title") else ""      # the seat holder the sidecar names
+    held = "The night coordinator%s is not woken: this morning's coordinator has not taken the seat yet." % (
+        " " + old if old else "")
     live = lambda t: t.get("activityRunStatus") == "running"           # noqa: E731
 
     # no coordinator: the seat names a thread that is gone, settled or archived
     if side:
         gone = coord is None or bool(coord.get("settledAt") or coord.get("archivedAt") or coord.get("deletedAt"))
         if gone and not st.get("coordless"):
-            notify(name, "folder has no coordinator", [
-                "the seat names thread %s (%s), which is %s" % (side.get("title") or "?", coord_id or "?",
-                                                                  "gone" if coord is None else "settled or archived"),
-                "workers report into a closed thread",
-                "fix: a session in this folder claims the seat (/orchestrator claim)"])
+            notify(name, "🔴 No coordinator: the seat names a closed session", [
+                "%s holds the seat, but it %s." % (old or "The old coordinator",
+                                                   "no longer exists" if coord is None else "is settled or archived"),
+                "Worker reports still go to that session.",
+                "Start a coordinator session and run /orchestrator claim in it."])
         elif not gone and st.get("coordless"):
-            notify(name, "resolved: the coordinator thread is back", [label(coord)])
+            notify(name, '🟡 Coordinator is back: "%s" holds the seat.' % title_of(coord))
         st["coordless"] = gone
 
     # handover (orchestrator.sh t3-handover): the successor has not claimed within 30 min
@@ -328,10 +386,10 @@ def check_scope(name, sdir, side, shell, ss):
             and NOW - since > HANDOVER_S:
         key = "%s@%d" % (to, since)
         if st.get("handover") != key:
-            notify(name, "handover to %s (thread %s) open for %d min, the successor has not claimed"
-                   % (ho.get("toTitle") or "untitled", to, (NOW - since) // 60),
-                   ["the old holder %s keeps the seat until then" % (side.get("title") or coord_id or "?"),
-                    "fix: the successor runs /orchestrator claim"])
+            succ = '"%s"' % cut(ho["toTitle"]) if ho.get("toTitle") else "the new session"
+            notify(name, "⏳ Coordinator handover stuck: %s has not taken the seat" % succ,
+                   ["Open since %s; %s keeps the seat until then." % (when(since), old or "the old coordinator"),
+                    "Open %s in T3 and have it run /orchestrator claim." % succ])
             st["handover"] = key
 
     # usage limit
@@ -366,10 +424,20 @@ def check_scope(name, sdir, side, shell, ss):
         ep["runs"] = nruns
         new = [t for i, t in sorted(limited.items()) if i not in ep["notified"]]
         if new:
-            notify(name, "usage limit", [
-                "%s, model %s, %s" % (label(t), model_of(t), "resets " + t["usageLimitResetAt"]
-                                      if t.get("usageLimitResetAt") else "reset unknown")
-                for t in new] + ["switch the subscription, the watcher retries every 30 min"])
+            def until(t):
+                u = iso_when(t.get("usageLimitResetAt"))
+                return "until " + u if u else "reset time unknown"
+            facts = ["• %s (%s%s)" % (title_of(t), "coordinator, " if is_coord(t) else "", until(t)) for t in new] + [""]
+            # what happens next, as the code below does it: workers get "limit over" through the
+            # coordinator (probe or Keepalive every 30 min); a Keepalive is answered "OK", nothing more
+            if not all(map(is_coord, new)):
+                facts.append("When the limit is over, the coordinator restarts the paused workers (checked every 30 min).")
+            if any(map(is_coord, new)):
+                facts.append("The coordinator does not resume its own task: tell it to continue after the reset.")
+            last = max((e for e in (iso_epoch(t.get("usageLimitResetAt")) for t in new) if e is not None), default=None)
+            notify(name, "🔴 Usage limit: %d session%s paused" % (len(new), " is" if len(new) == 1 else "s are"),
+                   facts + ["Switch the subscription, or wait until %s." % when(last) if last and last > NOW
+                            else "Switch the subscription, or wait for the reset."])
             ep["notified"] = sorted(set(ep["notified"]) | set(limited))
         # "limit over" goes once per limited (thread, run id): a thread the coordinator did not
         # continue is neither probed nor named again until its run id changes (a new limit).
@@ -377,9 +445,10 @@ def check_scope(name, sdir, side, shell, ss):
         workers = [t for i, t in sorted(limited.items()) if not is_coord(t) and i not in freed]
 
         def limit_over(ts):
-            if pending:
-                notify(name, "limit over", [label(t) for t in ts] + [
-                    held, "open each in T3 and send 'Continue where you left off.'"])
+            if pending:      # freed below: the watcher names these once, nobody else restarts them
+                notify(name, "⏳ Limit over: restart %d paused session%s yourself" % (len(ts), "" if len(ts) == 1 else "s"),
+                       ["• " + title_of(t) for t in ts] + ["", held, "Open %s in T3 and send 'Continue where you left off.'"
+                                                             % ("it" if len(ts) == 1 else "each")])
                 freed.update((t["id"], nruns[t["id"]]) for t in ts)
                 return
             if wake(name, "limit over for:\n%s\nsend 'Continue where you left off.' to each (t3_thread_send)."
@@ -406,8 +475,9 @@ def check_scope(name, sdir, side, shell, ss):
         ep["freed"] = freed
         st["limit"] = ep
     elif ep:
-        notify(name, "resolved: usage limit over", ["%d thread(s) were limited since %s" % (
-            len(ep.get("notified", [])), time.strftime("%d.%m.%y %H:%M", time.localtime(ep.get("since", NOW))))])
+        n = len(ep.get("notified", []))
+        notify(name, "🟡 Limit over: the %s paused since %s %s working again." % (
+            "session" if n == 1 else "%d sessions" % n, when(ep.get("since", NOW)), "is" if n == 1 else "are"))
         st["limit"] = {}
 
     # click pending > 10 min, stuck run > 3 h, other failure once per run id
@@ -419,26 +489,29 @@ def check_scope(name, sdir, side, shell, ss):
             key = str(req.get("id")) if isinstance(req, dict) and req.get("id") else json.dumps(req, sort_keys=True)[:200]
             e = pend.get(tid) if (pend.get(tid) or {}).get("key") == key else {"key": key, "first": NOW, "done": False}
             if not e["done"] and NOW - e["first"] >= CLICK_S:
-                notify(name, "waiting on a click", [label(t), "pending for %d min" % ((NOW - e["first"]) // 60),
-                                                    "open the thread in T3 and answer it"])
+                notify(name, "⏳ A session waits for your answer: %s" % title_of(t),
+                       ["Waiting since %s." % when(e["first"]), "Open it in T3 and answer."])
                 e["done"] = True
             npend[tid] = e
         elif live(t):
             snap = [t.get("activeRunId"), t.get("itemCount")]
             e = stuck.get(tid) if (stuck.get(tid) or {}).get("snap") == snap else {"snap": snap, "since": NOW, "done": False}
             if not e["done"] and NOW - e["since"] >= STUCK_S:
-                notify(name, "stuck run", [label(t), "no new item for %d h" % ((NOW - e["since"]) // 3600),
-                                           "check the thread; stop it if it hangs"])
+                notify(name, "🔴 A session may hang: %s" % title_of(t),
+                       ["Running, but no new step since %s." % when(e["since"]), "Check it in T3; stop it if it hangs."])
                 e["done"] = True
             nstuck[tid] = e
         if t.get("status") == "failed" and not live(t) and t.get("lastErrorClass") != "usage_limit":
             run = t.get("latestRunId") or "?"
             if failed.get(tid) != run:
-                facts = [label(t), "class %s" % (t.get("lastErrorClass") or "unknown"), err_text(t)]
-                if is_coord(t):
-                    notify(name, "the coordinator's last run failed", facts + ["look at the thread in T3"])
+                detail = "Detail: " + ": ".join(x for x in (t.get("lastErrorClass") or "unknown error",
+                                                            cut(err_text(t), 160)) if x)
+                if is_coord(t):     # not woken: a wake would start a new run of the failed coordinator
+                    notify(name, "🔴 The coordinator's last run failed: %s" % title_of(t),
+                           ["The watcher does not restart it.", "Look at it in T3 and nudge it if needed.", detail])
                 elif pending:
-                    notify(name, "other failure", facts + [held, "look at the thread in T3"])
+                    notify(name, "🔴 A session stopped with an error: %s" % title_of(t),
+                           [held, "Look at it in T3 and nudge it if needed.", detail])
                 else:
                     wake(name, "other failure in %s: %s. %s" % (label(t), t.get("lastErrorClass") or "unknown",
                                                                  err_text(t)))
@@ -461,13 +534,48 @@ def report_lost(gstate):
         lines = [ln.rstrip("\n") for ln in f.read().splitlines() if ln.strip()]
         gstate["failures_offset"] = f.tell()
     if lines:
-        facts = []
-        for ln in lines[:10]:
-            c = (ln.split("\t") + [""] * 5)[:5]
-            facts.append("%s from %s, thread %s: %s" % (c[0], c[1], c[3], c[4]))
+        # Three kinds of line, each with its own truth: a session's report (its text stays in that
+        # session), the watcher's own wake (a Keepalive or "limit over" is retried at the next 30-min
+        # retry; an "other failure" wake is not, nfailed is set either way), a quiet digest (queued,
+        # the inbox tick retries it on every watcher tick).
+        facts, kinds = [], set()
+        for i, ln in enumerate(lines):
+            c = (ln.split("\t") + [""] * 5)[:5]      # time, from, session id, thread id, reason
+            kind = "digest" if c[4].startswith("digest wake failed") else "watcher" if c[1] == "t3-watch" else "session"
+            kinds.add(kind)
+            if i < 10:
+                who = {"digest": "quiet-report digest", "watcher": "the watcher's notice"}.get(kind) \
+                    or cut(c[1] or "a session")
+                facts.append("• %s: %s" % (" ".join(x for x in (iso_when(c[0]), who) if x), why(c[4])))
         if len(lines) > 10:
-            facts.append("and %d more in %s" % (len(lines) - 10, path))
-        notify("all", "report lost: not delivered to the coordinator", facts)
+            facts.append("• and %d more" % (len(lines) - 10))
+        facts.append("")
+        if "session" in kinds:
+            facts.append("A report from a session is still in that session: read it there, or ask the coordinator to.")
+        if "watcher" in kinds:
+            facts += ["The watcher retries its usage-limit notices every 30 min.",
+                      "A notice about a failed session is not retried: check T3 for failed sessions."]
+        if kinds == {"digest"}:
+            facts.append("Nothing to do now.")
+        noun = "worker report" if kinds == {"session"} else "message"
+        notify("all", "🔴 %d %s%s did not reach the coordinator" % (len(lines), noun, "" if len(lines) == 1 else "s"), facts)
+
+
+def why(reason):
+    """A failures.log reason in words: "http <code>" (000 = no answer) and the sidecar checks from
+    t3-wake.sh, the morning hold from hooks/t3-report.sh, the two quiet-digest lines from
+    t3-inbox.py; anything else cut short."""
+    m = re.search(r"\bhttp (\d+)", reason)
+    code = ("no answer" if m[1] == "000" else "refused (HTTP %s)" % m[1]) if m else "not delivered"
+    if reason.startswith("digest wake failed"):        # the inbox tick runs on every watcher tick
+        return code + "; the reports stay queued and are retried every 10 min"
+    if "quiet digest wake" in reason:
+        return code + "; the report went back to its session"
+    if reason.startswith("held: the morning thread"):
+        return "held back until this morning's coordinator takes the seat"
+    if reason.startswith("sidecar "):                  # mode not 0600 / no usable reportUrl: t3-bind rewrites it
+        return "the coordinator's seat file is broken: have the coordinator claim the seat again"
+    return code if re.fullmatch(r"http \d+", reason) else cut(reason, 80)
 
 
 def topics_tick(names):
@@ -543,11 +651,15 @@ def main(argv):
             for n in names:
                 sdir = scope.info(n, CFG)[0]
                 inbox.tick(n, sdir, dry=DRY, hold=morning_pending(sdir))
+        gstate.get("since", {}).pop("internal", None)    # a whole tick without an internal error
     except Exception as e:      # never a crash loop: one notify per day, then exit 0
         if gstate.setdefault("api", {}).get("internal") != TODAY:
             gstate["api"]["internal"] = TODAY
-            notify("all", "t3-watch internal error", ["%s: %s" % (e.__class__.__name__, str(e)[:200]),
-                                                     "journalctl --user -u t3-watch.service"])
+            notify("all", "⚠️ T3 watcher hit an internal error", still(gstate, "internal") + [
+                "This check stopped at the error; some notices may be missing until it is fixed.",
+                "It runs again every 10 min and tells you at most once a day.",
+                "To see why: journalctl --user -u t3-watch.service",
+                "Detail: %s: %s" % (e.__class__.__name__, cut(e, 160))])
         log("internal error: %r" % e)
     save(g_path, gstate)
     return 1 if NOTIFY_FAILED else 0

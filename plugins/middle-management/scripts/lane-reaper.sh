@@ -31,9 +31,11 @@
 # lane is listed rather than removed. That is the safe half of the trade.
 #
 # Output: <config dir>/state/wt/reaper-latest.md, the run before it rotated to
-# reaper-previous.md. The configured notifyCommand is called when something was done or when the
-# set of listed rows changed — a quiet machine sends nothing. A failed action or a broken
-# `wt list` exits non-zero, which the unit's OnFailure= turns into an alarm.
+# reaper-previous.md. The configured notifyCommand is called when a lane was stopped, removed or
+# failed, or when the set of listed rows changed — a quiet machine sends nothing (marker clean-ups
+# alone stay in the listing). The message is in words for a person on a phone; the listing keeps
+# the commands and tip SHAs. A failed action or a broken `wt list` exits non-zero, which the unit's
+# OnFailure= turns into an alarm.
 #
 # Flags:
 #   --dry-run       print what WOULD happen and change nothing: no action, no listing file, no
@@ -91,21 +93,36 @@ DIGEST_HOUR="$(jq -r '.reaperDigestHour // 7' "$CFG_FILE")"
 mkdir -p "$STATE"
 
 RC=0; ACTIONS=(); ROWS=(); KEYS=(); OWNERS_GONE=""
+SAY=(); FAILS=(); PRERR=()   # the message's lines in words; ACTIONS is the listing's record with commands
+# PRERR: lanes whose pull-request state gh could not read. Shown as problems, but not a reason to
+# send: they would otherwise send every run while gh is down (the listed rows decide, as before).
+# when <epoch>: 14:05 · tomorrow 07:00 · yesterday 22:55 · Thu 07:00 (within six days) · 12 Nov 07:00
+# ponytail: the same function lives in orch-heartbeat.sh (copy dirs, see there).
+when() {
+  local f='%d %b %H:%M' now; now=$(date +%s)
+  case "$(date -d "@$1" +%F)" in
+    "$(date +%F)") f=%H:%M ;;
+    "$(date -d tomorrow +%F)") f='tomorrow %H:%M' ;;
+    "$(date -d yesterday +%F)") f='yesterday %H:%M' ;;
+    *) [ $(( $1 - now )) -lt 518400 ] && [ $(( now - $1 )) -lt 518400 ] && f='%a %H:%M' ;;
+  esac
+  LC_ALL=C date -d "@$1" +"$f"
+}
 age() { local s=$(( NOW - $1 )); printf '%dh%02dm' $((s/3600)) $(( (s%3600)/60 )); }
 epoch() { date -d "$1" +%s 2>/dev/null || echo 0; }    # `-` and junk become 0 = "unknown"
 row() { KEYS+=("$1"); shift; local c o=""           # a `|` in a field would break the table
   for c in "$@"; do o="$o| ${c//|//} "; done; ROWS+=("$o|"); }
 only_match() { [ -z "$ONLY" ] && return 0; case "$ONLY" in "$1"|"$2") return 0 ;; esac; return 1; }
-act() {  # act <lane> <key> <why> -- <cmd...>
-  local lane="$1" key="$2" why="$3"; shift 3; [ "${1:-}" = "--" ] && shift
+act() {  # act <lane> <key> <why> <said: the done sentence for the message> -- <cmd...>
+  local lane="$1" key="$2" why="$3" said="$4"; shift 4; [ "${1:-}" = "--" ] && shift
   if ! only_match "$lane" "$key"; then
-    row "skip:$key" "skipped" "$key" "$why" "not matched by --only $ONLY"; return 0
+    row "skip:$key" "skipped" "$key" "skipped, this run acts only on $ONLY" "$why"; return 0
   fi
-  if [ "$DRY" = 1 ]; then ACTIONS+=("$why → ${*}"); return 0; fi
+  if [ "$DRY" = 1 ]; then ACTIONS+=("$why → ${*}"); SAY+=("$said"); return 0; fi
   local out st=0 tip
   out=$("$@" 2>&1) || st=$?
   case "$st" in
-    0) ACTIONS+=("$why → ${*}")
+    0) ACTIONS+=("$why → ${*}"); SAY+=("$said")
        # once the branch is deleted, the tip SHA wt printed is the only record that the commits
        # can be restored
        tip=$(grep -m1 'tip was' <<<"$out" || true); [ -n "$tip" ] && ACTIONS+=("$tip") || true ;;
@@ -114,9 +131,10 @@ act() {  # act <lane> <key> <why> -- <cmd...>
        # about again every 30 minutes.
        local pids
        pids=$(printf '%s' "$out" | grep -oE 'pid [0-9]+' | head -3 | tr '\n' ' ' || true)
-       row "busy-cwd:$key" "listed" "$key" "refused, ${pids:-a process} still works inside $key" \
+       row "busy-cwd:$key" "listed" "$key" "not removed, a process still works inside $key (${pids% })" \
            "$why — the worktree stays; stop it by explicit pid, never by pattern" ;;
-    *) RC=1; ACTIONS+=("FAILED on $key: ${*} → $(printf '%s' "$out" | tail -2 | tr '\n' ' ')") ;;
+    *) RC=1; ACTIONS+=("FAILED on $key: ${*} → $(printf '%s' "$out" | tail -2 | tr '\n' ' ')")
+       FAILS+=("$key: the step failed ($(printf '%s' "$out" | tail -1 | cut -c1-120))") ;;
   esac
   return 0
 }
@@ -142,24 +160,30 @@ while IFS= read -r line; do
   KEY="$CO-$LANE"; ST=$(epoch "$STARTED")
   [ "$ALIVE" = no ] && OWNERS_GONE="$OWNERS_GONE $OWNER"
   if [ "$HOLD" != "-" ] && [ "$(epoch "$HOLD")" -gt "$NOW" ]; then
-    row "hold:$KEY" "held" "$KEY" "hold until $HOLD" "every rule waits while a hold is valid"
+    row "hold:$KEY" "held" "$KEY" "on hold until $(when "$(epoch "$HOLD")")" "every rule waits while a hold is valid"
   elif [ "$UNIT" != "-" ]; then
     if [ "$ST" != 0 ] && [ $(( NOW - ST )) -gt "$TTL_SEC" ]; then
-      act "$LANE" "$KEY" "expired: $UNIT up for $(age "$ST")" -- "$WT" "$CO" stop "$LANE"
+      act "$LANE" "$KEY" "expired: $UNIT up for $(age "$ST")" \
+        "Stopped the server of $KEY: it ran $(age "$ST"), longer than $((TTL_SEC / 3600)) h." -- "$WT" "$CO" stop "$LANE"
     elif [ "$ALIVE" = no ] && [ "$(dead_since "$OWNER")" -gt "$DEAD_SEC" ]; then
-      act "$LANE" "$KEY" "ownerless: $UNIT, owner $OWNER gone" -- "$WT" "$CO" stop "$LANE"
+      act "$LANE" "$KEY" "ownerless: $UNIT, owner $OWNER gone" \
+        "Stopped the server of $KEY: the session that started it has ended." -- "$WT" "$CO" stop "$LANE"
     else
-      row "busy:$KEY" "running" "$KEY" "up $(age "$ST")" "owner $OWNER (alive $ALIVE), $UNIT"
+      row "busy:$KEY" "running" "$KEY" "server up $(age "$ST")" "owner $OWNER (alive $ALIVE), $UNIT"
     fi
   elif [ "$PR" = error ]; then
-    RC=1; row "prerror:$KEY" "listed" "$KEY" "pull-request state UNKNOWN — gh failed" \
+    PRERR+=("$KEY: its pull request state could not be read (gh failed), so it was left alone")
+    RC=1; row "prerror:$KEY" "listed" "$KEY" "pull request state unknown (gh failed), left alone" \
       "alarm raised; an unreadable state is never read as 'nothing merged'"
   elif [ "$STATE_C" != clean ]; then
-    row "$STATE_C:$KEY" "listed" "$KEY" "tree is $STATE_C" "branch $BRANCH — nothing is removed while work can be lost"
+    case "$STATE_C" in dirty) W="uncommitted changes" ;; unpushed) W="commits not pushed yet" ;; *) W="tree is $STATE_C" ;; esac
+    row "$STATE_C:$KEY" "listed" "$KEY" "$W" "branch $BRANCH — nothing is removed while work can be lost"
   elif [ "$MERGED" = yes ] || [ "$PR" = MERGED ]; then
-    act "$LANE" "$KEY" "merged: $KEY (branch $BRANCH)" -- "$WT" "$CO" done "$LANE"
+    act "$LANE" "$KEY" "merged: $KEY (branch $BRANCH)" "Removed $KEY: its work is merged." -- "$WT" "$CO" done "$LANE"
   else
-    row "keep:$KEY" "listed" "$KEY" "pr $PR, not merged into the base" "branch $BRANCH, owner $OWNER"
+    case "$PR" in OPEN) W="pull request open" ;; CLOSED) W="pull request closed without a merge" ;;
+      none) W="no pull request yet" ;; -) W="not merged, no pull request information" ;; *) W="pr $PR, not merged" ;; esac
+    row "keep:$KEY" "listed" "$KEY" "$W" "branch $BRANCH, owner $OWNER"
   fi
 done <<<"$LIST"
 
@@ -207,19 +231,41 @@ DAY=$(date -d "@$NOW" +%F); DIGEST=0
 [ "$(( 10#$(date -d "@$NOW" +%H) ))" -ge "$DIGEST_HOUR" ] \
   && [ "$(cat "$STATE/digest-last" 2>/dev/null || true)" != "$DAY" ] && DIGEST=1
 
-BODY=()
-for a in ${ACTIONS[@]+"${ACTIONS[@]}"}; do BODY+=("$a"); done
-BODY+=("listed untouched: ${#ROWS[@]}")
-for r in ${ROWS[@]+"${ROWS[@]}"}; do
-  BODY+=("· $(awk -F'|' '{gsub(/^ +| +$/,"",$3); gsub(/^ +| +$/,"",$4); print $3" — "$4}' <<<"$r")")
+# The message: headline, what was done, what stays (at most five lines each), the action line.
+DONE=$(( ${#SAY[@]} + ${#FAILS[@]} ))
+# Every run that exits 1 (and so raises the unit alarm too) has its cause in FAILS or PRERR.
+NP=$(( ${#FAILS[@]} + ${#PRERR[@]} ))
+PL=""; [ "$NP" -gt 1 ] && PL=s      # not $(… && echo s): its status 1 would end the run (set -e)
+if [ "$NP" -gt 0 ]; then HEAD="🔴 Lane cleanup: $NP problem$PL"
+elif [ ${#SAY[@]} -gt 0 ]; then HEAD="🧹 Lane cleanup: ${#SAY[@]} done"
+else HEAD="🧹 Lane cleanup: nothing to do"; fi
+[ "$DIGEST" = 1 ] && HEAD="$HEAD (daily summary)"
+[ "$DRY" = 1 ] && HEAD="$HEAD (dry run, nothing was changed)"
+five() { local n=$#; [ "$n" -gt 5 ] && set -- "${@:1:5}" "… and $((n - 5)) more"; printf '• %s\n' "$@"; }
+KEPT=()
+for i in "${!ROWS[@]}"; do   # ROWS and KEYS grow together in row(); a prerror row is in PRERR already
+  case "${KEYS[$i]}" in prerror:*) continue ;; esac
+  KEPT+=("$(awk -F'|' '{gsub(/^ +| +$/,"",$3); gsub(/^ +| +$/,"",$4); print $3": "$4}' <<<"${ROWS[$i]}")")
 done
-MSG="lane reaper: $([ ${#ACTIONS[@]} -eq 0 ] && echo 'no action' || echo "${#ACTIONS[@]} action(s)")$([ "$DIGEST" = 1 ] && echo ' · daily digest')
-$(printf '%s\n' "${BODY[@]}" | head -12)
-full listing: $LATEST"
+MSG="$HEAD"
+[ $((DONE + NP)) -gt 0 ] && MSG="$MSG
+
+$(five ${FAILS[@]+"${FAILS[@]}"} ${PRERR[@]+"${PRERR[@]}"} ${SAY[@]+"${SAY[@]}"})"
+[ ${#KEPT[@]} -gt 0 ] && MSG="$MSG
+
+Left as they are:
+$(five "${KEPT[@]}")"
+if [ "$RC" != 0 ]; then MSG="$MSG
+
+See what failed:
+journalctl --user -u lane-reaper.service -n 50"
+else MSG="$MSG
+
+Nothing for you to do."; fi
 
 if [ "$DRY" = 1 ]; then
   printf '%s\n' "$LISTING"
-  echo "--- would notify: $( { [ "${#ACTIONS[@]}" -gt 0 ] || [ "$CHANGED" = 1 ] || [ "$DIGEST" = 1 ]; } && echo yes || echo 'no, nothing changed') ---"
+  echo "--- would notify: $( { [ "$DONE" -gt 0 ] || [ "$CHANGED" = 1 ] || [ "$DIGEST" = 1 ]; } && echo yes || echo 'no, nothing changed') ---"
   printf '%s\n' "$MSG"
   exit "$RC"
 fi
@@ -227,7 +273,7 @@ fi
 [ -f "$LATEST" ] && mv -f "$LATEST" "$PREV" || true
 printf '%s\n' "$LISTING" > "$LATEST"
 [ "$DIGEST" = 1 ] && echo "$DAY" > "$STATE/digest-last" || true
-if [ ${#ACTIONS[@]} -gt 0 ] || [ "$CHANGED" = 1 ] || [ "$DIGEST" = 1 ]; then
+if [ "$DONE" -gt 0 ] || [ "$CHANGED" = 1 ] || [ "$DIGEST" = 1 ]; then
   if [ "${MM_REAPER_NO_NOTIFY:-0}" = 1 ] || [ -z "$NOTIFY" ]; then
     echo "not sent (no notifyCommand, or suppressed); the message would have been:"; printf '%s\n' "$MSG"
   elif ! sh -c "$NOTIFY" notify "$MSG" <<<"$MSG" >/dev/null 2>&1; then   # <<<: see unit-failure-alarm.sh send()

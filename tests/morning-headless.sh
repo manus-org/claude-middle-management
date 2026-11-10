@@ -46,6 +46,7 @@ res() { jq -n --arg r "$1" '{type:"result",subtype:"success",is_error:false,tota
 case "${STUB_RUN:-ok}" in
   hang)     sleep 30 ;;
   budget)   echo '{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":3.0429}'; exit 1 ;;
+  limit)    echo "You've hit your limit · resets 3am (Europe/Berlin)"; exit 1 ;;
   other)    echo '{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0.0429,"session_id":"c429f401-0000"}'; exit 1 ;;
   noreport) res "" ;;
   secret)   res "Day plan. env: ANTHROPIC_API_KEY=sk-ant-api03-LEAKEDVALUE" ;;
@@ -92,7 +93,8 @@ say "== empty window: one line, no model run =="
 setup; age; stamp
 OUT="$(run)"; RC=$?
 assert_rc "nothing moved -> exit 0" 0 "$RC"
-assert_has "one 'no progress since' line was sent" "morning ritual: no progress since $(date -d "1 hour ago" '+%Y-%m-%d %H:%M')" "$(cat "$C/notified")"
+H1=$(date -d "1 hour ago" +%s); [ "$(date -d "@$H1" +%F)" = "$(date +%F)" ] && H1=$(date -d "@$H1" +%H:%M) || H1=$(date -d "@$H1" +'yesterday %H:%M')
+assert_has "one 'nothing new since' note was sent" "☀️ Nothing new since $H1, so no morning report today" "$(cat "$C/notified")"
 [ -s "$STUB_LOG" ] && bad "no claude call at all, not even the probe" "$(cat "$STUB_LOG")" || ok "no claude call at all, not even the probe"
 W0="$(cat "$C/state/morning-ritual/window")"
 OUT="$(run)"
@@ -147,24 +149,30 @@ say "== failures: one headline, the cause, the fix — in a cause file the alarm
 setup
 OUT="$(STUB_PRIMARY=429 run)"; RC=$?
 assert_rc "429 and no fallback -> exit 1" 1 "$RC"
-assert_has "the headline names the cause" "morning ritual FAILED: 429 (orch-morning-ritual.service)" "$(CAUSEF)"
+assert_has "the headline names the cause" "🔴 No morning report today: the account is at its usage limit" "$(CAUSEF)"
+assert_lacks "...without the unit or host in it" "orch-morning-ritual.service)" "$(head -1 "$C/state/unit-failure-alarm/orch-morning-ritual.service.cause" 2>/dev/null)"
 assert_has "the fix names the fallback variable" "MM_MORNING_FALLBACK_ENV" "$(CAUSEF)"
 assert_has "...and the rerun command" "systemctl --user start orch-morning-ritual.service" "$(CAUSEF)"
 [ -s "$STUB_LOG.run-args" ] && bad "no ritual run after a failed probe" || ok "no ritual run after a failed probe"
 # the OnFailure alarm sends the cause file instead of the journal, once
 OUT2="$(CLAUDE_CONFIG_DIR="$C" UFA_THROTTLE_SEC=0 bash "$P/scripts/unit-failure-alarm.sh" orch-morning-ritual.service 2>&1)"; RC=$?
 assert_rc "the alarm delivers" 0 "$RC"
-assert_has "the alarm carries the cause" "Cause: probe: 429" "$(cat "$C/notified")"
-assert_lacks "...not the journal tail" "Last lines:" "$(cat "$C/notified")"
+assert_has "the alarm carries the cause" "Detail: probe: 429" "$(cat "$C/notified")"
+assert_lacks "...not the generic unit alarm" "The other background jobs are not affected." "$(cat "$C/notified")"
 [ -e "$C/state/unit-failure-alarm/orch-morning-ritual.service.cause" ] && bad "the cause file is consumed" || ok "the cause file is consumed"
 : > "$C/notified"
 OUT2="$(CLAUDE_CONFIG_DIR="$C" UFA_THROTTLE_SEC=0 bash "$P/scripts/unit-failure-alarm.sh" orch-morning-ritual.service 2>&1)"
-assert_has "without a cause file the alarm falls back to the journal" "Last lines:" "$(cat "$C/notified")"
+assert_has "without a cause file the alarm falls back to the generic one" "🔴 The morning report failed" "$(cat "$C/notified")"
 
 setup; printf 'ANTHROPIC_API_KEY=%s\n' "$SECRET" > "$C/fallback.env"
 OUT="$(STUB_PRIMARY=429 STUB_FALLBACK=429 run MM_MORNING_FALLBACK_ENV="$C/fallback.env")"; RC=$?
 assert_rc "the fallback limited too -> exit 1" 1 "$RC"
-assert_has "...and the fix says so" "the fallback is limited too" "$(CAUSEF)"
+assert_has "...and the fix says so" "The second account is limited too" "$(CAUSEF)"
+setup; printf 'ANTHROPIC_API_KEY=%s\n' "$SECRET" > "$C/fallback.env"
+OUT="$(STUB_RUN=limit run MM_MORNING_FALLBACK_ENV="$C/fallback.env")"; RC=$?
+assert_rc "the probe passes, the run hits the limit -> exit 1" 1 "$RC"
+assert_has "...says the second account was not tried" "The second account was not tried: the quick check before the run had passed." "$(CAUSEF)"
+assert_lacks "...never that none is set up" "No second account is set up" "$(CAUSEF)"
 setup
 OUT="$(PSEC=1 STUB_PRIMARY=hang run)"; RC=$?
 assert_rc "a hanging probe without a fallback -> exit 1" 1 "$RC"
@@ -174,22 +182,24 @@ setup; START=$(date +%s)
 OUT="$(STUB_RUN=hang run MM_MORNING_TIMEOUT_MIN=0.05)"; RC=$?
 assert_rc "a hanging ritual run -> exit 1" 1 "$RC"
 [ $(( $(date +%s) - START )) -lt 25 ] && ok "...stopped by the hard timeout" || bad "run timeout" "$(( $(date +%s) - START ))s"
-assert_has "...cause timeout" "FAILED: timeout" "$(CAUSEF)"
+assert_has "...cause timeout" "No morning report today: the run took longer than" "$(CAUSEF)"
 assert_has "...fix: the journal and the knob" "MM_MORNING_TIMEOUT_MIN" "$(CAUSEF)"
 setup
 OUT="$(STUB_RUN=budget run MM_MORNING_MAX_BUDGET_USD=0.5)"; RC=$?
 assert_rc "budget hit -> exit 1" 1 "$RC"
-assert_has "...cause budget" "FAILED: budget" "$(CAUSEF)"
+assert_has "...cause budget" "No morning report today: the run hit its spending cap" "$(CAUSEF)"
 assert_has "...the passed cap" "--max-budget-usd 0.5" "$(cat "$STUB_LOG.run-args")"
 setup
 OUT="$(STUB_RUN=other run)"; RC=$?
 assert_rc "another error -> exit 1" 1 "$RC"
-assert_has "...cause other (a cost of 0.0429 or an id with 429 is no 429)" "FAILED: other" "$(CAUSEF)"
+assert_has "...cause other (a cost of 0.0429 or an id with 429 is no 429)" "No morning report today: the run ended with an error" "$(CAUSEF)"
 setup
 OUT="$(STUB_RUN=noreport run)"; RC=$?
 assert_rc "a run that writes no report -> exit 1" 1 "$RC"
-assert_has "...says so" "without a day plan in its final message" "$(CAUSEF)"
+assert_has "...says so" "No morning report today: the run ended without a day plan" "$(CAUSEF)"
 assert_has "...and names the permission knob (r1 m6)" "MM_MORNING_PERMISSION_MODE" "$(CAUSEF)"
+assert_has "...its own action keeps the rerun command" "$(printf 'in the unit, then:\nsystemctl --user start orch-morning-ritual.service')" "$(CAUSEF)"
+assert_lacks "...never the journal command it did not ask for" "journalctl" "$(CAUSEF)"
 setup; jq 'del(.notifyCommand)' "$C/middle-management.json" > "$C/j" && mv "$C/j" "$C/middle-management.json"
 OUT="$(run)"; RC=$?
 assert_rc "no notifyCommand -> exit 1 before any model run" 1 "$RC"
@@ -197,7 +207,7 @@ assert_rc "no notifyCommand -> exit 1 before any model run" 1 "$RC"
 setup
 OUT="$(STUB_PRIMARY=429 PATH="$BIN:$PATH" CLAUDE_CONFIG_DIR="$C" MM_SESSION_LOG="" bash "$MH" 2>&1)"; RC=$?
 assert_rc "a manual run (no MM_MORNING_UNIT) fails the same way" 1 "$RC"
-assert_has "...with the cause on stderr" "FAILED: 429" "$OUT"
+assert_has "...with the cause on stderr" "the account is at its usage limit" "$OUT"
 [ -z "$(ls "$C/state/unit-failure-alarm" 2>/dev/null)" ] && ok "...and leaves no cause file" || bad "manual run cause file"
 
 say "== r1 fold =="
@@ -226,11 +236,16 @@ OUT="$(STUB_PRIMARY=429 run MM_MORNING_FALLBACK_ENV="$C/fb")"; RC=$?
 assert_rc "a CRLF fallback file exports the key without the CR" 0 "$RC"
 # m2: the CLI's own limit and expiry wording is classified, not "other"
 setup; OUT="$(STUB_PRIMARY=limit run)"
-assert_has "\"You've hit your limit\" -> 429" "FAILED: 429" "$(CAUSEF)"
+assert_has "\"You've hit your limit\" -> 429" "the account is at its usage limit" "$(CAUSEF)"
 setup; OUT="$(STUB_PRIMARY=expired run)"
-assert_has "\"OAuth token has expired\" -> 401" "FAILED: 401" "$(CAUSEF)"
+assert_has "\"OAuth token has expired\" -> 401" "the login was refused" "$(CAUSEF)"
 setup; OUT="$(STUB_PRIMARY=weird run)"
 assert_has "an unknown error carries the CLI's own first line" "other: Something unexpected happened" "$(CAUSEF)"
+assert_has "...under a short headline, not a sentence" "🔴 No morning report today: the quick check before the run gave an answer it does not know" "$(CAUSEF)"
+assert_has "...with no action of its own: the journal" "$(printf 'See what happened:\njournalctl --user -u orch-morning-ritual.service -n 50')" "$(CAUSEF)"
+setup; OUT="$(STUB_PRIMARY=weird run MM_MORNING_FALLBACK_ENV="$C/no-such-file")"
+assert_has "an unknown probe error with its own action keeps the rerun command" "$(printf '(mode 600), then:\nsystemctl --user start orch-morning-ritual.service')" "$(CAUSEF)"
+assert_lacks "...never the journal command" "journalctl" "$(CAUSEF)"
 # m3: the probe tests the run's model
 setup; OUT="$(run MM_MORNING_MODEL=sonnet)"
 assert_has "the probe uses MM_MORNING_MODEL" "--model sonnet" "$(cat "$STUB_LOG.probe-args")"

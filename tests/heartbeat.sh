@@ -160,7 +160,8 @@ tick >/dev/null
 is "C3 alarm #1"                  "$(alarms)" 1
 is "C3 poke #1"                   "$(pokes)" 1
 is "C3 episode alarmed"           "$(epfield "$SID" alarmed)" yes
-is "C3 alarm names the session"   "$(grep -c 'coordinator "orchtest" stuck since' "$ENVDIR/alarms")" 1
+is "C3 alarm names the session"   "$(grep -c '^🔴 Coordinator stuck since [a-z ]*[0-9:]*: orchtest' "$ENVDIR/alarms")" 1
+is "C3 says until when it nudges" "$(grep -c 'every 60 min, until [a-z ]*[0-9:]*\.' "$ENVDIR/alarms")" 1
 # C4 next tick, nothing new
 tick >/dev/null
 is "C4 still one alarm"           "$(alarms)" 1
@@ -176,7 +177,14 @@ transcript 0 < <( { a "61 min ago"; u "60 min ago"; limit "59 min ago" "$(( $(da
 tick >/dev/null
 is "C6 recovery alarm"            "$(alarms)" 2
 is "C6 episode deleted"           "$([ -e "$ENVDIR/hbstate/$SID.json" ] && echo yes || echo no)" no
-is "C6 cause quoted"              "$(grep -c 'usage limit, reset at' "$ENVDIR/alarms")" 1
+is "C6 cause quoted"              "$(grep -c 'had hit its usage limit (reset ' "$ENVDIR/alarms")" 1
+is "C6 one line, refers back"     "$(grep -c '^🟡 Coordinator answers again after [0-9]* min: orchtest\.' "$ENVDIR/alarms")" 1
+
+# C6b the session is named by its title: the user's own title wins over the AI title, no id
+setup; transcript 60 < <( { printf '{"type":"ai-title","aiTitle":"An AI title"}\n{"type":"custom-title","customTitle":"Night coordinator"}\n{"type":"ai-title","aiTitle":"A later AI title"}\n'; a "61 min ago"; u "60 min ago"; } )
+tick >/dev/null
+is "C6b alarm carries the title"  "$(grep -c 'stuck since [a-z ]*[0-9:]*: Night coordinator' "$ENVDIR/alarms")" 1
+is "C6b no session id in it"      "$(grep -c "${SID:0:8}" "$ENVDIR/alarms")" 0
 
 # C7 HEALTHY (fresh mtime) must NOT be read as recovery
 setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } )
@@ -189,7 +197,7 @@ is "C7 no recovery alarm"          "$(alarms)" 1
 # C8 give up after GIVE_UP_H
 setup; transcript 1500 < <( { a "1501 min ago"; u "1500 min ago"; } )
 tick >/dev/null
-is "C8 final alarm"               "$(grep -c 'gives up' "$ENVDIR/alarms")" 1
+is "C8 final alarm"               "$(grep -c 'still stuck after 24 h, nudges stopped' "$ENVDIR/alarms")" 1
 is "C8 no poke"                   "$(pokes)" 0
 is "C8 stopped"                   "$(epfield "$SID" stopped)" yes
 tick >/dev/null
@@ -202,7 +210,8 @@ echo '{"alarmed":"yes","stuck_since":"1"}' > "$ENVDIR/hbstate/99999999-dead-dead
 echo '{"kept":1}' > "$ENVDIR/hbstate/latches"; echo "old" > "$ENVDIR/hbstate/last-tick"
 tick >/dev/null
 is "C9 foreign episode removed"   "$(ls "$ENVDIR/hbstate"/*.json 2>/dev/null | wc -l)" 0
-is "C9 closing line sent"         "$(grep -c 'closed without a recovery' "$ENVDIR/alarms")" 1
+is "C9 closing line sent"         "$(grep -c '^🟡 No longer watching the stuck coordinator' "$ENVDIR/alarms")" 1
+is "C9 no session id in it"       "$(grep -c '99999999' "$ENVDIR/alarms")" 0
 is "C9 latch file survives"       "$([ -e "$ENVDIR/hbstate/latches" ] && echo yes || echo no)" yes
 is "C9 last-tick survives"        "$([ -e "$ENVDIR/hbstate/last-tick" ] && echo yes || echo no)" yes
 
@@ -234,14 +243,20 @@ is "C12 no poke"                  "$(pokes)" 0
 setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } )
 jq '.procStart = "999999999"' "$ENVDIR/reg/$$.json" > "$TMP/e" && mv "$TMP/e" "$ENVDIR/reg/$$.json"
 is "C13 exit 0"                   "$(tick)" 0
-is "C13 undecidable alarm"        "$(grep -c 'cannot decide' "$ENVDIR/alarms")" 1
+is "C13 undecidable alarm"        "$(grep -c 'Cannot tell whether the coordinator still runs' "$ENVDIR/alarms")" 1
 tick >/dev/null
 is "C13 throttled to hourly"      "$(alarms)" 1
+is "C13 the first one has no repeat line" "$(grep -c 'Still so since' "$ENVDIR/alarms")" 0
+jq --arg k "undecidable:$SID" '.[$k] -= 3700' "$ENVDIR/hbstate/latches" > "$TMP/e" && mv "$TMP/e" "$ENVDIR/hbstate/latches"
+tick >/dev/null
+is "C13 an hour later it repeats" "$(alarms)" 2
+is "...and says since when"       "$(grep -c 'Still so since [a-z ]*[0-9:]* (this repeats at most every 60 min)' "$ENVDIR/alarms")" 1
 
 # C14 no transcript -> latched alarm, no crash
 setup
 tick >/dev/null
-is "C14 missing transcript alarm" "$(grep -c 'found no transcript' "$ENVDIR/alarms")" 1
+is "C14 missing transcript alarm" "$(grep -c 'cannot be watched for stalls: orchtest' "$ENVDIR/alarms")" 1
+is "C14 no id or path in it"      "$(grep -c -e "${SID:0:8}" -e "$ENVDIR" "$ENVDIR/alarms")" 0
 tick >/dev/null
 is "C14 latched"                  "$(alarms)" 1
 
@@ -249,10 +264,10 @@ is "C14 latched"                  "$(alarms)" 1
 setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } )
 printf 'import sys\nsys.exit(2)\n' > "$ENVDIR/hb/poke-session.py"
 POKE_SINK_OVERRIDE="" tick >/dev/null
-is "C15 poke failure alarmed"     "$(grep -c 'no live session with id' "$ENVDIR/alarms")" 1
+is "C15 poke failure alarmed"     "$(grep -c 'cannot be nudged: orchtest .*Its session is not registered as live' "$ENVDIR/alarms")" 1
 jq --arg t "$(( $(date +%s) - 3700 ))" '.last_poke = $t' "$ENVDIR/hbstate/$SID.json" > "$TMP/e" && mv "$TMP/e" "$ENVDIR/hbstate/$SID.json"
 POKE_SINK_OVERRIDE="" tick >/dev/null
-is "C15 not alarmed again"        "$(grep -c 'no live session with id' "$ENVDIR/alarms")" 1
+is "C15 not alarmed again"        "$(grep -c 'cannot be nudged' "$ENVDIR/alarms")" 1
 is "C15 episode carries the flag" "$(epfield "$SID" poke_error)" yes
 
 # C16 an alarm that cannot be delivered never gates the poke
@@ -282,7 +297,7 @@ is "C19 three ticks, one stuck alarm" "$(grep -c 'stuck since' "$ENVDIR/alarms")
 # the latch file is only rewritten when a latched branch fires - drive one that does
 setup; mkdir -p "$ENVDIR/hbstate"; echo 'not json at all' > "$ENVDIR/hbstate/latches"
 tick >/dev/null; tick >/dev/null; tick >/dev/null      # no transcript: a "once" latch
-is "C19 corrupt latch still latches" "$(grep -c 'found no transcript' "$ENVDIR/alarms")" 1
+is "C19 corrupt latch still latches" "$(grep -c 'cannot be watched for stalls' "$ENVDIR/alarms")" 1
 is "C19 latch file repaired"      "$(jq -r 'type' "$ENVDIR/hbstate/latches" 2>/dev/null)" object
 setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } )
 mkdir -p "$ENVDIR/hbstate"; echo 'garbage {' > "$ENVDIR/hbstate/$SID.json"
@@ -296,7 +311,7 @@ sed 's/"orchtest"/"orch-two"/; s/"sessionId":"[^"]*"/"sessionId":"22222222-3333-
   "$ENVDIR/reg/$$.json" > "$ENVDIR/reg/second.json"
 rm -f "$ENVDIR/state/orchestrator"
 tick >/dev/null
-is "C20 refuses to guess"         "$(grep -c 'cannot tell who coordinates' "$ENVDIR/alarms")" 1
+is "C20 refuses to guess"         "$(grep -c 'No coordinator is watched: 2 sessions have a name starting with orch' "$ENVDIR/alarms")" 1
 is "C20 no poke"                  "$(pokes)" 0
 tick >/dev/null
 is "C20 throttled to hourly"      "$(alarms)" 1
@@ -306,10 +321,10 @@ is "C20 throttled to hourly"      "$(alarms)" 1
 setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } )
 rm -f "$ENVDIR/hb/orch-heartbeat-poke.md"   # a file the poke path needs
 is "C17 exit 0 despite the error" "$(POKE_SINK_OVERRIDE="" tick)" 0
-is "C17 one internal-error alarm" "$(grep -c 'internal error' "$ENVDIR/alarms")" 1
+is "C17 one internal-error alarm" "$(grep -c 'check hit a bug' "$ENVDIR/alarms")" 1
 is "C17 plus the legitimate one"  "$(alarms)" 2
 POKE_SINK_OVERRIDE="" tick >/dev/null
-is "C17 error alarm is latched"   "$(grep -c 'internal error' "$ENVDIR/alarms")" 1
+is "C17 error alarm is latched"   "$(grep -c 'check hit a bug' "$ENVDIR/alarms")" 1
 
 # ------------------------------------------------------------------------- F. keep-warm -----
 echo "F. keep-warm pings for waiting sessions"
@@ -368,7 +383,7 @@ notify_to_file() { jq -n --arg c "printf '%s\\n' \"\$1\" >> $ENVDIR/notified" '{
 setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } ); notify_to_file
 is "D1 exit 0"                    "$(ALARM_SINK_OVERRIDE="" tick)" 0
 is "D1 delivered via notifyCommand" "$(grep -c 'stuck since' "$ENVDIR/notified")" 1
-is "D1 line carries the host tag" "$(grep -c '^\[' "$ENVDIR/notified")" 1
+is "D1 the headline comes first"  "$(grep -c '^🔴 Coordinator stuck since' "$ENVDIR/notified")" 1
 is "D1 poke sent"                 "$(pokes)" 1
 # D2 no config file at all: journaled, poke still sent, exit 0
 setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } ); rm -f "$ENVDIR/mm.json"
@@ -385,9 +400,10 @@ is "D3 poke sent anyway"          "$(pokes)" 1
 setup; notify_to_file
 UFA_CONFIG=$ENVDIR/mm.json UFA_LATCH_DIR=$ENVDIR/ufa "$UFA" some.service >/dev/null 2>&1; RC=$?
 is "D4 exit 0"                    "$RC" 0
-is "D4 names the unit"            "$(grep -c 'some.service FAILED' "$ENVDIR/notified")" 1
+is "D4 names the unit"            "$(grep -c '^🔴 The job "some.service" failed' "$ENVDIR/notified")" 1
+is "D4 the log command on its own line" "$(grep -c '^journalctl --user -u some.service -n 50$' "$ENVDIR/notified")" 1
 UFA_CONFIG=$ENVDIR/mm.json UFA_LATCH_DIR=$ENVDIR/ufa "$UFA" some.service >/dev/null 2>&1
-is "D4 second failure throttled"  "$(grep -c 'some.service FAILED' "$ENVDIR/notified")" 1
+is "D4 second failure throttled"  "$(grep -c 'some.service" failed' "$ENVDIR/notified")" 1
 rm -f "$ENVDIR/mm.json"
 UFA_CONFIG=$ENVDIR/mm.json UFA_LATCH_DIR=$ENVDIR/ufa2 "$UFA" other.service >/dev/null 2>&1; RC=$?
 is "D4 no notifyCommand -> exit 1 (loud in the journal)" "$RC" 1
@@ -427,7 +443,7 @@ setup; gcfg; transcript 3 < <( { u "20 min ago"; a "3 min ago"; } )
 mkdir -p "$ENVDIR/ff" "$ENVDIR/state/scopes/ff"; ffsess ffcoord 60; printf '%s\n' "$FFSID" > "$ENVDIR/state/scopes/ff/orchestrator"
 is "G1 exit 0"                         "$(gtick)" 0
 is "G1 exactly one alarm"              "$(alarms)" 1
-is "G1 the alarm names scope ff"       "$(grep -c 'scope ff\] coordinator "ffcoord" stuck since' "$ENVDIR/alarms")" 1
+is "G1 the alarm names scope ff"       "$(grep -c '^🔴 Coordinator of ff stuck since [a-z ]*[0-9:]*: ffcoord' "$ENVDIR/alarms")" 1
 is "G1 one poke, for the ff seat"      "$(cat "$ENVDIR/pokes")" "$FFSID poke#1"
 is "G1 episode in the ff state dir"    "$([ -e "$FFST/$FFSID.json" ] && echo yes || echo no)" yes
 is "G1 none in the default state dir"  "$(ls "$ENVDIR/hbstate"/*.json 2>/dev/null | wc -l)" 0
@@ -456,15 +472,19 @@ is "G3 the poke's first line as before" "$(head -1 "$ENVDIR/body-$SID" | sed 's/
 setup worker-xx; gcfg; rm -f "$ENVDIR/state/orchestrator"; mkdir -p "$ENVDIR/ff"; ffsess orch-ff 60
 gtick >/dev/null
 is "G4 one poke, from the ff child"    "$(cat "$ENVDIR/pokes")" "$FFSID poke#1"
-is "G4 the alarm names scope ff"       "$(grep -c 'scope ff\]' "$ENVDIR/alarms")" 1
+is "G4 the alarm names scope ff"       "$(grep -c 'Coordinator of ff stuck' "$ENVDIR/alarms")" 1
 is "G4 default regime is off"          "$(cut -d' ' -f2- "$ENVDIR/hbstate/last-tick")" regime-off
 # G5 scopes configured, scope.py cannot run: the default seat is still watched (by name here)
 setup; gcfg; rm -f "$ENVDIR/state/orchestrator"; transcript 3 < <( { u "20 min ago"; a "3 min ago"; } )
 GNOPY=$TMP/nopy; mkdir -p "$GNOPY"; ln -s /usr/bin/* /bin/* "$GNOPY"/ 2>/dev/null; rm -f "$GNOPY"/python3*
 PATH=$GNOPY gtick >/dev/null
-is "G5 one alarm: scope.py list failed" "$(grep -c 'scope.py list failed' "$ENVDIR/alarms")" 1
+is "G5 one alarm: scope.py list failed" "$(grep -c 'project list cannot be read' "$ENVDIR/alarms")" 1
 is "G5 default seat still healthy"     "$(cut -d' ' -f2- "$ENVDIR/hbstate/last-tick")" "healthy (orchtest)"
 is "G5 no other alarm (no internal error)" "$(alarms)" 1
+# G6 an auto scope of scopeMode per-root (<name>-<6 hex>) is named without its hash
+setup; transcript 60 < <( { a "61 min ago"; u "60 min ago"; } )
+OHB_SCOPE=proj-a1b2c3 tick >/dev/null
+is "G6 auto scope without its hash"    "$(grep -c '^🔴 Coordinator of proj stuck since' "$ENVDIR/alarms")" 1
 for p in $GPIDS; do kill "$p" 2>/dev/null; done
 
 # ------------------------------------------------- E. the poke sender's envelope ------------

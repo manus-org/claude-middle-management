@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.0 - 2026-11-10
+
+**Notify messages read like a note from a colleague.** Every text the plugin sends through
+`notifyCommand` (T3 watcher, topics reminders and digest, heartbeat, unit-failure alarm, lane
+reaper, morning ritual, guard canary, refused claim, copy refresh, self-wakeup nudge) was rewritten
+for a person reading it on a phone, coming from another topic: an emoji and what happened on line 1,
+then one fact per line, the one action or command last, raw error text only as a last `Detail:`
+line. Gone from the texts: the `<script> <host>, scope <scope>:` prefix, thread and session ids,
+model ids, ISO timestamps, and file paths outside a command to copy or the last `Detail:` line.
+Sessions are named by their title (cut at 45 characters), times are local ("23:30", "tomorrow
+07:00", "Thu 07:00"), a repeating alarm says since when, and a claim about what happens next is made
+only where the code does it (a limited coordinator, for example, does not resume its own task by
+itself, and the message says so). Small behaviour changes: a lane-reaper run whose only action is a
+marker clean-up sends nothing; the unit-failure alarm ships the last two lines the unit's own
+process logged instead of the last eight journal lines; and a session without a registry name is
+written as "an unnamed session" instead of `session <8 hex>` (in `failures.log` and in the sender of
+a wake). Cause: a usage-limit message full of thread ids, model ids and an ISO reset time that told
+its reader nothing on a phone. No config or unit change.
+
 ## 0.16.1 - 2026-11-09
 
 **Inbound phone replies under T3, documented.** A team's inbound phone poller (outside the plugin)

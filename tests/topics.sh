@@ -161,18 +161,20 @@ OUT="$(tp "$H/plain" "$SID" $((T0 + 3600)) tick)"
 OUT="$(tp "$H/plain" "$SID" $((T0 + 7260)) tick)"; RC=$?
 assert_rc "a tick after 2 h exits 0" 0 "$RC"
 M="$(cat "$N" 2>/dev/null)"
-assert_has "one digest went out" "Waiting on you: 2" "$M"
-assert_has "...the question inline" "alpha · ask Zoki again?" "$M"
-assert_has "...its recommendation on its own line" "rec: yes" "$M"
-assert_has "...the OK wait as a question" "beta · OK to close beta? Review: 1 round, clean" "$M"
+assert_has "one digest went out" "⏳ 2 open points wait for you" "$M"
+assert_has "...the question inline, with since when" "• alpha: ask Zoki again? (since 10:00)" "$M"
+assert_has "...its recommendation on its own line" "  Recommended: yes" "$M"
+assert_has "...the OK wait as a question" "• beta: done and reviewed (1 round, clean), OK to close it?" "$M"
+assert_has "...the action last" "Give your answers to the coordinator; it books them." "$(printf '%s\n' "$M" | sed -n '/^---$/q;p' | tail -1)"
 if printf '%s\n' "$M" | grep -qE '^\[[0-9]{2}:[0-9]{2}\]'; then bad "no [HH:MM] prefix" "$M"; else ok "no [HH:MM] prefix"; fi
+if printf '%s\n' "$M" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}'; then bad "no ISO date in the reminder" "$M"; else ok "no ISO date in the reminder"; fi
 D="$(cat "$C/state/morning-ritual/delivered")"
 assert_has "the delivered keys go into the ritual's ledger" "topic:default:alpha" "$D"
 rm -f "$N"
 tp "$H/plain" "$SID" $((T0 + 7260 + 600)) tick >/dev/null
 [ -f "$N" ] && bad "the next tick 10 min later sends nothing" "$(cat "$N")" || ok "the next tick 10 min later sends nothing"
 tp "$H/plain" "$SID" $((T0 + 4 * 3600 + 120)) tick >/dev/null
-assert_has "the next digest after another 2 h carries the open ones again" "Waiting on you: 2" "$(cat "$N" 2>/dev/null)"
+assert_has "the next digest after another 2 h carries the open ones again" "2 open points wait for you" "$(cat "$N" 2>/dev/null)"
 rm -f "$N"
 OUT="$(tp "$H/plain" "$SID" "$(date -d "today 23:00" +%s)" tick)"
 assert_has "outside the window: render only" "outside remindWindow" "$OUT"
@@ -185,10 +187,12 @@ printf '# w · %s · %s/plain\n- W1 · owner: user · stamped old · added: %s\n
 printf 'aaaaaaaa-W3\t%s\n' "$(date -d @$((T0 + 5 * 3600)) '+%Y-%m-%d %H:%M')" >> "$C/state/morning-ritual/delivered"
 tp "$H/plain" "$SID" $((T0 + 6 * 3600 + 300)) tick >/dev/null
 M="$(cat "$N" 2>/dev/null)"
-assert_has "a stamped user item past the threshold is reminded" "aaaaaaaa-W1 · stamped old" "$M"
-assert_lacks "an unstamped one never counts" "aaaaaaaa-W2" "$M"
-assert_lacks "one the ritual delivered less than 2 h ago is not repeated" "aaaaaaaa-W3" "$M"
-assert_lacks "a lane item is not the user's" "aaaaaaaa-W4" "$M"
+assert_has "a stamped user item past the threshold is reminded" "• stamped old (since 09:00)" "$M"
+assert_lacks "...without its key (a session id prefix)" "aaaaaaaa-W1" "$M"
+assert_lacks "...nor its raw added: stamp" "added:" "$M"
+assert_lacks "an unstamped one never counts" "unstamped" "$M"
+assert_lacks "one the ritual delivered less than 2 h ago is not repeated" "ritual delivered" "$M"
+assert_lacks "a lane item is not the user's" "not yours" "$M"
 assert_has "...and the item key goes into the same ledger" "aaaaaaaa-W1" "$(cat "$C/state/morning-ritual/delivered")"
 rm -f "$N"
 cfg ',"notifyCommand":"exit 1"'
@@ -197,7 +201,7 @@ assert_rc "a failing notifyCommand -> exit 1 (the unit alarm sees it)" 1 "$RC"
 L1="$(grep -c 'topic:default:alpha' "$C/state/morning-ritual/delivered")"
 cfg
 tp "$H/plain" "$SID" $((T0 + 9 * 3600 + 60)) tick >/dev/null
-assert_has "...nothing was recorded, so the next tick sends it" "Waiting on you" "$(cat "$N" 2>/dev/null)"
+assert_has "...nothing was recorded, so the next tick sends it" "open points wait for you" "$(cat "$N" 2>/dev/null)"
 
 say "== more than 3: one page, answers booked back =="
 for k in p1 p2 p3; do
@@ -208,7 +212,7 @@ cfg ',"remindWindow":"00:00-23:59","pageCommand":"cp \"$1\" '"$H"'/page.json && 
 TK=$((T0 + 12 * 3600))
 tp "$H/plain" "$SID" "$TK" tick >/dev/null
 M="$(cat "$N" 2>/dev/null)"
-assert_has ">3 due -> one message with the page link" "One page with all of them: https://example.test/page/" "$M"
+assert_has ">3 due -> one message with the page link" "Answer them on one page: https://example.test/page/" "$M"
 assert_lacks "...not the questions inline" "decide p1?" "$M"
 CARDS="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join(t["ticket"] for t in d["tickets"])); print(d["tickets"][0]["questions"][0]["id"])' "$H/page.json")"
 assert_has "the page carries one card per topic, card id = topic key" "p1" "$CARDS"
@@ -232,7 +236,7 @@ for k in p4 p5 p6; do
 done
 OUT="$(tp "$H/plain" "$SID" $((TK + 3 * 3600)) tick)"
 assert_has "a failing pageCommand -> one inline digest" "inline digest instead" "$OUT"
-assert_has "...with the questions inline" "p4 · decide p4?" "$(cat "$N" 2>/dev/null)"
+assert_has "...with the questions inline" "• p4: decide p4? (since" "$(cat "$N" 2>/dev/null)"
 cfg
 
 say "== daily digest: stale and done without OK =="
@@ -242,12 +246,15 @@ tp "$H/plain" "$CSID" $((D2 - 26 * 3600)) entry --topic shipped --new --status c
 rm -f "$N"
 tp "$H/plain" "$SID" "$D2" tick >/dev/null
 M="$(cat "$N" 2>/dev/null)"
-assert_has "a topic without an entry for 24 h, not on the user -> daily digest" "stale old · waits on Zoki" "$M"
-assert_has "done without OK -> daily digest" "done without OK shipped · no review" "$M"
-assert_has "...with the D3 line" "re-opened after wrap:" "$M"
+assert_has "the daily digest names what it counts" "📋 Topics check: 5 stalled, 1 done without an OK" "$M"
+assert_has "a topic without an entry for 24 h, not on the user -> daily digest" "• old stalled: waits on Zoki, last entry yesterday 07:00" "$M"
+assert_has "done without OK -> daily digest" "• shipped is done: no review yet" "$M"
+assert_lacks "...no D3 wrap line while no topic was wrapped (it would read 0 of 0)" "Worked on again" "$M"
+assert_lacks "...no scope default" "scope" "$M"
+if printf '%s\n' "$M" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}'; then bad "no ISO date in the daily digest" "$M"; else ok "no ISO date in the daily digest"; fi
 rm -f "$N"
 tp "$H/plain" "$SID" $((D2 + 600)) tick >/dev/null
-assert_lacks "the daily digest goes out once a day" "Topics digest" "$(cat "$N" 2>/dev/null)"
+assert_lacks "the daily digest goes out once a day" "Topics check" "$(cat "$N" 2>/dev/null)"
 
 say "== lint =="
 OUT="$(tp "$H/plain" "$SID" "$T0" lint)"

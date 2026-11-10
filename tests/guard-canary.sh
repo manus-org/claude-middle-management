@@ -76,7 +76,7 @@ setup; export STUB_haiku=refuse STUB_sonnet=refuse
 OUT=$(run MM_CANARY_E2E_HOUR=0); is "no call on either model -> exit 1" "$?" 1; has "...cause" "no plugin deny text for the edit probe" "$(cause)"
 [ -f "$C/state/guard-canary/e2e-$(date +%F)" ] && bad "...not latched" none file || ok "...not latched"
 setup; export STUB_haiku=write
-OUT=$(run MM_CANARY_E2E_HOUR=0); is "the probe file got written -> exit 1" "$?" 1; has "...cause" "checkout guard not live" "$(cause)"
+OUT=$(run MM_CANARY_E2E_HOUR=0); is "the probe file got written -> exit 1" "$?" 1; has "...cause" "The checkout guard is off in real sessions" "$(cause)"
 [ -e "$REPO/.mm-guard-probe" ] && bad "...the file is moved out of the checkout" gone present || ok "...the file is moved out of the checkout"
 has "...into the leftovers" "mm-guard-probe-" "$(ls "$C/state/guard-canary/leftovers" 2>/dev/null)"
 setup; OUT=$(run MM_CANARY_E2E_HOUR=24); is "before the e2e hour -> no model call" "$(cat "$STUB_LOG")" ""

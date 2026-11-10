@@ -11,7 +11,7 @@
 # In order:
 #  1. Empty window: the session log, the board, the open-items drops, the commits of every
 #     protectedCheckouts repo and $MM_MORNING_WATCH unchanged since the last delivered ritual ->
-#     one line "no progress since <date>" through notifyCommand, NO model run, exit 0.
+#     one short "nothing new since <time>" message through notifyCommand, NO model run, exit 0.
 #  2. Probe: `claude -p OK --max-turns 1` under `timeout`. 429 / 401 / no answer (a rate-limited
 #     account retries with backoff and simply hangs) -> load ANTHROPIC_API_KEY or
 #     CLAUDE_CODE_OAUTH_TOKEN from $MM_MORNING_FALLBACK_ENV and probe once more. Names only: no
@@ -19,9 +19,10 @@
 #  3. The ritual (middle-management:morning-ritual, its to-do step 6 included), bounded twice:
 #     --max-budget-usd and a hard `timeout`, read-only. Its final message is the day plan; this
 #     script sends it, marks the to-dos whose keys it carries as delivered and stamps the window.
-#  4. Failure: a headline, the cause (429 / 401 / timeout / budget / other) and the one fix
-#     command, to stderr and to <config dir>/state/unit-failure-alarm/<unit>.cause, which the
-#     OnFailure= alarm sends INSTEAD of the journal tail. Exit 1.
+#  4. Failure: in words for a person on a phone: a headline by cause (429 / 401 / timeout /
+#     budget / other), what still works, what to do with the one command on its own line, and at
+#     most one raw `Detail:` line; to stderr and to <config dir>/state/unit-failure-alarm/<unit>.cause,
+#     which the OnFailure= alarm sends INSTEAD of the journal tail. Exit 1.
 #
 # Env (all optional; the unit template sets MM_MORNING_UNIT=%n):
 #   MM_MORNING_UNIT            this unit's name; unset (a manual run) = no cause file
@@ -79,7 +80,6 @@ BUDGET="${MM_MORNING_MAX_BUDGET_USD:-3}"
 TMO_MIN="${MM_MORNING_TIMEOUT_MIN:-20}"
 PROBE_SEC="${MM_MORNING_PROBE_SEC:-25}"
 RERUN="systemctl --user start ${UNIT:-orch-morning-ritual.service}"
-HOST="$(hostname -s 2>/dev/null || echo host)"
 FELL_BACK=""
 PHASE=probe
 
@@ -92,22 +92,40 @@ notify() {  # $1 = text; the same contract as unit-failure-alarm.sh and the hear
   sh -c "$cmd" notify "$1" <<<"$1" >/dev/null 2>&1   # <<<, not a pipe: see unit-failure-alarm.sh send()
 }
 
-fail() {  # $1 = cause word, $2 = what happened
-  local fix cause="$1" log="journalctl --user -u ${UNIT:-orch-morning-ritual.service} -n 50"
+fail() {  # $1 = cause word, $2 = what happened (a sentence; for `other` the headline itself),
+          # $3 = detail (raw, one line, optional), $4 = what to do (optional; ends with ":" before
+          # the command) and $5 = the command (optional, default the rerun). The journal command
+          # is the default only when no $4 is given: a caller's own action keeps its rerun.
+  local cause="$1" head="" do="${4:-}" cmd="${5:-$RERUN}" what="$2" still="Your sessions are not affected."
+  local log="journalctl --user -u ${UNIT:-orch-morning-ritual.service} -n 50"
   # A probe that does not answer is what a rate-limited login looks like (the CLI retries its 429
   # with backoff), so its fix is the 429 one; a ritual run that does not finish is a different story.
-  [ "$cause:$PHASE" = timeout:probe ] && cause=429
+  [ "$cause:$PHASE" = timeout:probe ] && { cause=429; head="the login does not answer, most likely its usage limit"; }
   case "$cause" in
-    429)     if [ -n "$FELL_BACK" ]; then fix="the fallback is limited too: wait for the reset or put another account's credential into $FALLBACK, then: $RERUN"
-             else fix="put ANTHROPIC_API_KEY=… or CLAUDE_CODE_OAUTH_TOKEN=… into a mode-600 file named by MM_MORNING_FALLBACK_ENV in the unit, then: $RERUN"; fi ;;
-    401)     fix="log in again as this user (claude, then /login) or renew the credential in ${FALLBACK:-the MM_MORNING_FALLBACK_ENV file}, then: $RERUN" ;;
-    timeout) fix="$log   (a run that is only long: raise MM_MORNING_TIMEOUT_MIN, now $TMO_MIN)" ;;
-    budget)  fix="raise MM_MORNING_MAX_BUDGET_USD in the unit (now $BUDGET), then: $RERUN" ;;
-    *)       fix="$log" ;;
+    429)     head=${head:-the account is at its usage limit}; still="Other sessions on this login may be limited too."
+             if [ -n "$FELL_BACK" ]; then do=${do:-The second account is limited too. Once a limit has reset, start it again:}
+             elif [ -n "$FALLBACK" ]; then do=${do:-"The second account was not tried: the quick check before the run had passed.
+Once the limit has reset, start it again:"}
+             else do=${do:-"No second account is set up to step in (MM_MORNING_FALLBACK_ENV in the unit, README \"Headless morning ritual\").
+Once the limit has reset, start it again:"}; fi ;;
+    401)     head="the login was refused"; still="Other sessions on this login may be logged out too."
+             [ -n "$FALLBACK" ] && do=${do:-"Log in again as this user (claude, then /login), or renew the credential in the second account file, then:"}
+             do=${do:-"Log in again as this user (claude, then /login), then:"} ;;
+    timeout) head="the run took longer than $TMO_MIN min"
+             [ -n "${4:-}" ] || { do="If it is only slow, raise MM_MORNING_TIMEOUT_MIN in the unit (now $TMO_MIN). See what it did:"; cmd=${5:-$log}; } ;;
+    budget)  head="the run hit its spending cap"
+             do=${do:-Raise MM_MORNING_MAX_BUDGET_USD in the unit (now $BUDGET), then:} ;;
+    check)   head="the quick check before the run gave an answer it does not know"   # a probe's `other`
+             [ -n "${4:-}" ] || { do="See what happened:"; cmd=${5:-$log}; } ;;
+    *)       head=$what; what=""; [ -n "${4:-}" ] || { do="See what happened:"; cmd=${5:-$log}; } ;;
   esac
-  local text="[$HOST] morning ritual FAILED: $1${UNIT:+ ($UNIT)}
-Cause: $2
-Fix: $fix"
+  local text="🔴 No morning report today: $head
+
+${what:+$what
+}$still
+$do
+$cmd${3:+
+Detail: $3}"
   printf '%s\n' "$text" >&2
   if [ -n "$CAUSE" ]; then mkdir -p "$(dirname "$CAUSE")" && printf '%s\n' "$text" > "$CAUSE"; fi
   exit 1
@@ -123,7 +141,7 @@ classify() {  # $1 = exit code, $2 = file with the CLI's output -> 429 | 401 | t
   else echo other; fi
 }
 
-said() {  # a probe cause in words; `other` carries the CLI's own first line
+said() {  # a probe cause, short, for the Detail line and the journal; `other` carries the CLI's own first line
   case "$1" in
     timeout) echo "no answer within ${PROBE_SEC}s (a rate-limited login retries and hangs)" ;;
     other)   echo "other: $(head -c 160 "$STATE/probe.out" 2>/dev/null | tr '\n' ' ')" ;;
@@ -143,15 +161,28 @@ probe() {  # sets PROBE to ok or a cause word
 
 mkdir -p "$STATE" || { echo "morning-headless: cannot create $STATE" >&2; exit 1; }
 [ -n "$CAUSE" ] && rm -f "$CAUSE"        # a cause left from an earlier failure is not this run's
-command -v jq >/dev/null || fail other "jq is not installed"
-command -v claude >/dev/null || fail other "claude is not on PATH (set Environment=PATH= in the unit)"
-command -v timeout >/dev/null || fail other "timeout (coreutils) is not on PATH"
-[ -n "$(cfg '.notifyCommand // ""')" ] || fail other "no notifyCommand in $CFG_FILE, so no report could reach anyone"
+command -v jq >/dev/null || fail other "jq is not installed" "" "Install jq, then start it again:"
+command -v claude >/dev/null || fail other "it cannot find the claude command" "claude is not on PATH" "Add claude's folder to Environment=PATH= in the unit, then:"
+command -v timeout >/dev/null || fail other "it cannot find the timeout command (coreutils)" "timeout is not on PATH" "Add its folder to Environment=PATH= in the unit, then:"
+[ -n "$(cfg '.notifyCommand // ""')" ] || fail other "no message channel is set up, so no report could reach you" \
+  "no notifyCommand in $CFG_FILE" "Set one up, then start it again (systemctl --user start ${UNIT:-orch-morning-ritual.service}):" "/middle-management-setup"
 
 # 1. Empty window. Without a window file (first run) there is nothing to compare: run.
 W="$(cat "$WINDOW_FILE" 2>/dev/null)"; case "$W" in ''|*[!0-9]*) W="" ;; esac
 SINCE="yesterday evening (no earlier delivered ritual on record)"
 [ -n "$W" ] && SINCE="$(date -d "@$W" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "@$W")"
+# when <epoch>: 14:05 · tomorrow 07:00 · yesterday 22:55 · Thu 07:00 (within six days) · 12 Nov 07:00
+# ponytail: the same function lives in orch-heartbeat.sh (copy dirs, see there).
+when() {
+  local f='%d %b %H:%M' now; now=$(date +%s)
+  case "$(date -d "@$1" +%F)" in
+    "$(date +%F)") f=%H:%M ;;
+    "$(date -d tomorrow +%F)") f='tomorrow %H:%M' ;;
+    "$(date -d yesterday +%F)") f='yesterday %H:%M' ;;
+    *) [ $(( $1 - now )) -lt 518400 ] && [ $(( now - $1 )) -lt 518400 ] && f='%a %H:%M' ;;
+  esac
+  LC_ALL=C date -d "@$1" +"$f"
+}
 if [ -n "$W" ] && [ "${MM_MORNING_FORCE:-}" != 1 ]; then
   moved=""
   # shellcheck disable=SC2086  # MM_MORNING_WATCH is a space-separated list on purpose
@@ -170,8 +201,11 @@ if [ -n "$W" ] && [ "${MM_MORNING_FORCE:-}" != 1 ]; then
     done < <(cfg '.protectedCheckouts[]?.root // empty')
   fi
   if [ -z "$moved" ]; then
-    notify "[$HOST] morning ritual: no progress since $SINCE (no session-log entry, board change, open item, repo change or watched file) — no model run." \
-      || fail other "the \"no progress\" line could not be sent through notifyCommand"
+    notify "☀️ Nothing new since $(when "$W"), so no morning report today
+
+No session log entry, board change, open item or commit since then, and no model ran.
+Nothing for you to do." \
+      || fail other "the \"nothing new\" note could not be sent" "notifyCommand failed"
     echo "morning-headless: window empty since $SINCE, no model run"
     exit 0
   fi
@@ -181,21 +215,26 @@ fi
 # 2. Probe, then the fallback credential once.
 if ! probe; then
   FIRST="$PROBE"
-  [ -n "$FALLBACK" ] || fail "$FIRST" "probe: $(said "$FIRST"); no fallback configured (MM_MORNING_FALLBACK_ENV)"
-  [ -r "$FALLBACK" ] || fail "$FIRST" "probe: $(said "$FIRST"); the fallback file $FALLBACK is not readable"
+  # A probe's `other` gets its own headline (check): for `other` fail() would make $2 the headline.
+  [ -n "$FALLBACK" ] || fail "${FIRST/#other/check}" "The quick check before the run failed, so no model ran." "probe: $(said "$FIRST")"
+  [ -r "$FALLBACK" ] || fail "${FIRST/#other/check}" "The quick check before the run failed, and the second account's file cannot be read." \
+    "probe: $(said "$FIRST"); $FALLBACK is not readable" "Make that file readable for this user (mode 600), then:"
   # KEY=value lines, read and never executed; only the two names, never echoed.
   while IFS='=' read -r k v || [ -n "$k" ]; do          # a last line without newline counts too
     k="${k#export }"; v="${v%$'\r'}"; v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
     case "$k" in ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN) [ -n "$v" ] && export "$k=$v" && FELL_BACK="$FELL_BACK $k" ;; esac
   done < "$FALLBACK"
-  [ -n "$FELL_BACK" ] || fail "$FIRST" "probe: $(said "$FIRST"); $FALLBACK sets neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN"
+  [ -n "$FELL_BACK" ] || fail "${FIRST/#other/check}" "The quick check before the run failed, and the second account's file holds no credential." \
+    "probe: $(said "$FIRST"); $FALLBACK sets neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN" \
+    "Put ANTHROPIC_API_KEY=… or CLAUDE_CODE_OAUTH_TOKEN=… into that file, then:"
   echo "morning-headless: probe: $(said "$FIRST"); retrying with$FELL_BACK from $FALLBACK"
-  probe || fail "$PROBE" "probe: $(said "$FIRST"); with$FELL_BACK from $FALLBACK: $(said "$PROBE")"
+  probe || fail "${PROBE/#other/check}" "The quick check failed with the second account too, so no model ran." \
+    "probe: $(said "$FIRST"); with$FELL_BACK from $FALLBACK: $(said "$PROBE")"
 fi
 
 # 3. The ritual.
 PHASE=run
-RUN="$STATE/runs/$(date +%Y-%m-%d-%H%M%S)"; mkdir -p "$RUN" || fail other "cannot create $RUN"
+RUN="$STATE/runs/$(date +%Y-%m-%d-%H%M%S)"; mkdir -p "$RUN" || fail other "it cannot create its run folder" "cannot create $RUN"
 find "$STATE/runs" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} + 2>/dev/null
 python3 "$HERE/open-items.py" todo > "$RUN/todo.txt" 2>&1 || echo "open-items.py todo failed, see $RUN/todo.txt" >&2
 REPORT="$RUN/report.txt"
@@ -217,24 +256,28 @@ cat "$RUN/claude.json" "$RUN/claude.err" > "$RUN/claude.all" 2>/dev/null
 if [ "$RC" -ne 0 ] || [ "$(jq -r '.is_error | tostring' "$RUN/claude.json" 2>/dev/null)" != false ]; then
   WHY="$(classify "$RC" "$RUN/claude.all")"
   case "$WHY" in
-    timeout) fail timeout "the ritual run did not finish within $TMO_MIN min and was stopped" ;;
-    budget)  fail budget "the ritual run hit --max-budget-usd $BUDGET" ;;
-    *)       fail "$WHY" "the ritual run ended with exit $RC ($(jq -r '.subtype // empty' "$RUN/claude.json" 2>/dev/null | head -c 80)); output in $RUN" ;;
+    timeout) fail timeout "It was stopped before it finished." "" ;;
+    budget)  fail budget "It stopped at the cap of $BUDGET USD before it finished." "--max-budget-usd $BUDGET" ;;
+    other)   fail other "the run ended with an error" "exit $RC ($(jq -r '.subtype // empty' "$RUN/claude.json" 2>/dev/null | head -c 80)); output in $RUN" ;;
+    *)       fail "$WHY" "The run stopped partway." "exit $RC ($(jq -r '.subtype // empty' "$RUN/claude.json" 2>/dev/null | head -c 80)); output in $RUN" ;;
   esac
 fi
 # The report is the run's final message (.result): no Write call, so the CLI's default permission
 # mode is enough for it.
 jq -r '.result // empty' "$RUN/claude.json" 2>/dev/null > "$REPORT"
-grep -q '[^[:space:]]' "$REPORT" || fail other "the ritual run ended without a day plan in its final message (output in $RUN; tool calls your settings do not allow are refused unattended: MM_MORNING_PERMISSION_MODE)"
+grep -q '[^[:space:]]' "$REPORT" || fail other "the run ended without a day plan" "output in $RUN" \
+  "Tool calls your settings do not allow are refused unattended: allow them, or set MM_MORNING_PERMISSION_MODE in the unit, then:"
 # Last guard before the channel: the fallback credential sits in the run's environment.
 if grep -qE 'sk-ant-[A-Za-z0-9_-]{8,}|(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)=[^ ]' "$REPORT" \
    || { [ -n "${ANTHROPIC_API_KEY:-}" ] && grep -qF -- "$ANTHROPIC_API_KEY" "$REPORT"; } \
    || { [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && grep -qF -- "$CLAUDE_CODE_OAUTH_TOKEN" "$REPORT"; }; then
-  fail other "the report contains a secret-looking string and was NOT sent ($REPORT)"
+  fail other "the report held a secret-looking string, so it was not sent" "" \
+    "Read it on this machine before anything else:" "less $REPORT"
 fi
 SENT="$(cat "$REPORT")"
 [ "$(wc -c < "$REPORT")" -le 3800 ] || SENT="$(head -c 3800 "$REPORT" | sed '$d')"   # whole lines only
-notify "$SENT" || fail other "the report could not be sent through notifyCommand (it is in $REPORT)"
+notify "$SENT" || fail other "the report could not be sent" "notifyCommand failed" \
+  "It was made and is on disk; read it with:" "less $REPORT"
 # Delivered = what reached your user: only the keys the sent text carries.
 KEYS="$(for k in $(sed -n 's/.* todo --delivered //p' "$RUN/todo.txt" | tail -1); do
           case "$SENT" in *"$k"*) printf '%s ' "$k" ;; esac; done)"

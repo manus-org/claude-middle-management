@@ -64,19 +64,26 @@ ALWAYS need explicit human approval, no matter how long the user is gone.
 ## Nudge
 
 A nudge reaches the user through the plugin's one sender, `notifyCommand` (config,
-`/middle-management-setup`). It is useless if the user cannot tell WHICH of their sessions and
-machines it comes from, so every nudge names the host, the session and its topic, the pending
-decision, your default and the stage. Never a bare "a session is waiting".
+`/middle-management-setup`). They read it on a phone, coming from something else, so it names
+your session by its topic in words, what you need from them, your default and the exact answer
+to give. Never a bare "a session is waiting", and no session ids, session names or stage
+numbers: each one is a lookup for them.
 
 ```bash
 CFG="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/config-check.sh" file)"
 CMD="$(jq -r '.notifyCommand // ""' "$CFG")"
-MSG="[$(hostname -s)] <your session name> (<topic>): waiting on <what you need>. My default if you stay silent: <recommended option>. Stage <N>/<M>."
+MSG="⏳ <your topic in words> waits for you: <what you need, in plain words>
+
+My default if you stay silent: <recommended option>.
+Answer in that session, for example: <the exact reply to type>"
 if [ -n "$CMD" ] && printf '%s\n' "$MSG" | sh -c "$CMD" notify "$MSG" >/dev/null 2>&1; then echo "nudge: sent"; else echo "nudge: NOT sent"; fi
 ```
 
-- **Session name:** your own (the role banner names it; else your registry entry in
-  `<config dir>/sessions/*.json`, found by your sessionId).
+- **Topic:** what your session works on, as the user would say it (about 45 characters at most),
+  never the registry name or the id. Only if your user works on several machines, add
+  `(on <host>)` to the first line.
+- **The second nudge** (near the final stage) adds the line `Waiting since <HH:MM>.` (local time
+  of your first nudge, from `date +%H:%M`) right under the blank line.
 - **Language:** the one you talk to your user in.
 - No `notifyCommand`, or the send fails: note it and keep waiting on the schedule anyway. A failed
   nudge is never a reason to proceed.

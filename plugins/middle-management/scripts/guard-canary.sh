@@ -29,12 +29,16 @@ CFG_DIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 CFG=$CFG_DIR/middle-management.json
 STATE=$CFG_DIR/state/guard-canary
 UNIT=${MM_CANARY_UNIT:-}
-HOST=$(hostname -s 2>/dev/null || echo host)
 
+# fail <headline with emoji> <detail> [<what to do, ending ":"> [<command>]] [<what it means>]:
+# written for a person on a phone, the one command on its own line, the raw cause as Detail.
 fail() {
-  local text="[$HOST] middle-management guard canary FAILED${UNIT:+ ($UNIT)}
-Cause: $1
-Fix: ${2:-/middle-management-setup, then: systemctl --user start mm-guard-canary.service}"
+  local text="$1
+
+${5:-Sessions keep working, but without this protection until it is fixed.}
+${3:-Fix it with /middle-management-setup, then check again:}
+${4:-systemctl --user start mm-guard-canary.service}${2:+
+Detail: $2}"
   printf '%s\n' "$text" >&2
   if [ -n "$UNIT" ]; then
     local c="$CFG_DIR/state/unit-failure-alarm/$(printf '%s' "$UNIT" | tr -c 'A-Za-z0-9._-' '_').cause"
@@ -42,29 +46,36 @@ Fix: ${2:-/middle-management-setup, then: systemctl --user start mm-guard-canary
   fi
   exit 1
 }
-command -v jq >/dev/null 2>&1 || fail "jq is not installed" "install jq"
+command -v jq >/dev/null 2>&1 || fail "⚠️ The guard check cannot run: jq is not installed" "" "Install jq, then check again:" "" \
+  "Whether the plugin's guards still work is unknown until it can."
 
 # 1. config
-[ -f "$CFG" ] || fail "config missing: $CFG (the checkout guard is silently off)"
+[ -f "$CFG" ] || fail "🔴 The checkout guard is off: the plugin config is missing" "config missing: $CFG" "Create it:" "/middle-management-setup" \
+  "Edits in your protected checkouts are not blocked until it exists."
 # 2. enabled
 S=$CFG_DIR/settings.json
-[ -f "$S" ] || fail "settings missing: $S"
+[ -f "$S" ] || fail "🔴 The plugin's guards may be off: Claude Code's settings file is missing" "settings missing: $S"
 PLUGIN=${MM_CANARY_PLUGIN:-$(jq -r '.plugins // {} | keys[] | select(startswith("middle-management@"))' \
   "$CFG_DIR/plugins/installed_plugins.json" 2>/dev/null | head -1)}
-[ -n "$PLUGIN" ] || fail "middle-management is not in $CFG_DIR/plugins/installed_plugins.json" "/plugin install middle-management@<marketplace>"
+[ -n "$PLUGIN" ] || fail "🔴 The plugin's guards are off: middle-management is not installed" \
+  "not in $CFG_DIR/plugins/installed_plugins.json" "Install it in a session:" "/plugin install middle-management@<marketplace>"
 [ "$(jq -r --arg p "$PLUGIN" '.enabledPlugins[$p] // false' "$S" 2>/dev/null)" = true ] \
-  || fail "$PLUGIN is not enabled in $S" "/plugin enable $PLUGIN"
+  || fail "🔴 The plugin's guards are off: the plugin is disabled" "$PLUGIN is not enabled in $S" "Switch it on in a session:" "/plugin enable $PLUGIN"
 # 3. installed hooks
 IP=$(jq -r --arg p "$PLUGIN" '.plugins[$p][0].installPath // ""' "$CFG_DIR/plugins/installed_plugins.json" 2>/dev/null)
-[ -n "$IP" ] && [ -d "$IP" ] || fail "the installPath of $PLUGIN is missing ('$IP')" "/plugin update $PLUGIN"
+[ -n "$IP" ] && [ -d "$IP" ] || fail "🔴 The plugin's guards are off: its installed files are missing" \
+  "the installPath of $PLUGIN is missing ('$IP')" "Reinstall it in a session:" "/plugin update $PLUGIN"
 for h in session-role.sh block-blanket-git-add.sh protect-main-checkouts.sh; do
-  grep -q "hooks/$h" "$IP/hooks/hooks.json" 2>/dev/null || fail "$IP/hooks/hooks.json does not register $h" "/plugin update $PLUGIN"
+  grep -q "hooks/$h" "$IP/hooks/hooks.json" 2>/dev/null || fail "🔴 A guard of the plugin is no longer switched on" \
+    "$IP/hooks/hooks.json does not register $h" "Reinstall the plugin in a session:" "/plugin update $PLUGIN"
 done
 CLAUDE_CONFIG_DIR="$CFG_DIR" bash "$IP/scripts/config-check.sh" validate >/dev/null 2>&1 \
-  || fail "config-check.sh validate fails for $CFG (invalid config: the checkout guard is off)"
+  || fail "🔴 The checkout guard is off: the plugin config is invalid" "config-check.sh validate fails for $CFG" \
+    "Fix it with /middle-management-setup, then check again:" "" "Edits in your protected checkouts are not blocked until it is valid."
 # 4. no second wiring of the same hooks in settings.json
 LEG=$(jq -r '[.hooks[]?[]?.hooks[]?.command // empty] | map(select(test("session-role\\.sh|block-blanket-git-add\\.sh|protect-main-checkouts\\.sh"))) | join(" ")' "$S" 2>/dev/null)
-[ -z "$LEG" ] || fail "the guard hooks are also wired in $S (they fire twice): $LEG" "remove those entries from $S"
+[ -z "$LEG" ] || fail "⚠️ The guards fire twice: they are also wired in your own settings" "in $S: $LEG" \
+  "Remove those entries from your settings file, then check again:" "" "They still protect; a leftover copy just runs a second time."
 
 # 5. direct probes. The staging string is built from halves: a guard on this machine blocks the
 #    literal even inside a quoted string.
@@ -72,20 +83,21 @@ A="git add"
 STAGING=$(jq -r 'if .surgicalStaging == false then "off" else "on" end' "$CFG")
 if [ "$STAGING" = on ]; then
   printf '{"tool_input":{"command":"%s -A"}}' "$A" | CLAUDE_CONFIG_DIR="$CFG_DIR" CLAUDE_PLUGIN_ROOT="$IP" bash "$IP/hooks/block-blanket-git-add.sh" 2>/dev/null \
-    | grep -q '"permissionDecision":"deny"' || fail "the staging guard did not deny the direct probe"
+    | grep -q '"permissionDecision":"deny"' || fail "🔴 The staging guard is off: a test of blanket git staging was not blocked" "the direct probe was not denied"
 fi
 ROOT=$(jq -r '.protectedCheckouts[0].root // ""' "$CFG")
 if [ -n "$ROOT" ]; then
   jq -nc --arg f "$ROOT/.mm-guard-probe" '{tool_input:{file_path:$f}}' \
     | CLAUDE_CONFIG_DIR="$CFG_DIR" CLAUDE_PLUGIN_ROOT="$IP" bash "$IP/hooks/protect-main-checkouts.sh" 2>/dev/null \
-    | grep -q '"permissionDecision":"deny"' || fail "the checkout guard did not deny the direct probe on $ROOT"
+    | grep -q '"permissionDecision":"deny"' || fail "🔴 The checkout guard is off: a test edit in a protected checkout was not blocked" "the direct probe on $ROOT was not denied"
 fi
 
 # 6. daily end-to-end probe
 mkdir -p "$STATE"
 LATCH=$STATE/e2e-$(date +%F)
 if [ -z "${MM_CANARY_NO_E2E:-}" ] && [ ! -f "$LATCH" ] && [ "$((10#$(date +%H)))" -ge "${MM_CANARY_E2E_HOUR:-9}" ]; then
-  command -v claude >/dev/null 2>&1 || fail "claude is not on PATH for the end-to-end probe" "set Environment=PATH= in the unit"
+  command -v claude >/dev/null 2>&1 || fail "⚠️ The daily guard test in a real session cannot run: it cannot find claude" "claude is not on PATH" \
+    "Add claude's folder to Environment=PATH= in the unit, then check again:" "" "The hourly checks above passed; only the test in a real session is missing."
   OUT=$(mktemp -d "$STATE/e2e.XXXXXX")
   # The CLI reads ~/.claude.json only while CLAUDE_CONFIG_DIR is unset (morning-headless.sh, same fix);
   # unset, not empty: an empty value makes the CLI (2.1.306) report "Not logged in".
@@ -105,17 +117,23 @@ if [ -z "${MM_CANARY_NO_E2E:-}" ] && [ ! -f "$LATCH" ] && [ "$((10#$(date +%H)))
     probe "$OUT/edit.jsonl" Write "$ROOT" "Use the Write tool to create $P with the content x, then reply done."
     if [ -e "$P" ]; then
       mkdir -p "$STATE/leftovers" && mv "$P" "$STATE/leftovers/mm-guard-probe-$(date +%F-%H%M)"
-      fail "e2e: the probe file was written into the protected checkout $ROOT (checkout guard not live); stream: $OUT/edit.jsonl"
+      fail "🔴 The checkout guard is off in real sessions: a test edit went into a protected checkout" \
+        "the probe file was written into $ROOT and moved aside; stream: $OUT/edit.jsonl"
     fi
     grep -q 'Direct edits in the protected checkout' "$OUT/edit.jsonl" \
-      || fail "e2e: no plugin deny text for the edit probe (no Write call on ${MM_CANARY_MODELS:-haiku sonnet}, or the guard is not loaded); stream: $OUT/edit.jsonl"
+      || fail "⚠️ The daily guard test failed: the checkout guard did not answer in a real session" \
+        "no plugin deny text for the edit probe (no Write call on ${MM_CANARY_MODELS:-haiku sonnet}, or the guard is not loaded); stream: $OUT/edit.jsonl" \
+        "" "" "Either the test model did not try the edit, or Claude Code no longer loads the guard."
   fi
   if [ "$STAGING" = on ]; then
     R=$(mktemp -d "$STATE/repo.XXXXXX"); git -C "$R" init -q && touch "$R/f"
     probe "$OUT/stage.jsonl" Bash "$R" "Run exactly this Bash command and nothing else: $A -A"
-    [ -z "$(git -C "$R" diff --cached --name-only 2>/dev/null)" ] || fail "e2e: the staging probe staged files in $R (staging guard not live)"
+    [ -z "$(git -C "$R" diff --cached --name-only 2>/dev/null)" ] || fail "🔴 The staging guard is off in real sessions: a test of blanket git staging went through" \
+      "the staging probe staged files in $R"
     grep -q 'blanket git staging is blocked' "$OUT/stage.jsonl" \
-      || fail "e2e: no plugin deny text for the staging probe (no Bash call on ${MM_CANARY_MODELS:-haiku sonnet}, or the guard is not loaded); stream: $OUT/stage.jsonl"
+      || fail "⚠️ The daily guard test failed: the staging guard did not answer in a real session" \
+        "no plugin deny text for the staging probe (no Bash call on ${MM_CANARY_MODELS:-haiku sonnet}, or the guard is not loaded); stream: $OUT/stage.jsonl" \
+        "" "" "Either the test model did not try the command, or Claude Code no longer loads the guard."
   fi
   date '+%F %T' > "$LATCH"
   find "$STATE" -maxdepth 1 \( -name 'e2e.*' -o -name 'repo.*' -o -name 'e2e-*' \) -mtime +7 -exec rm -rf {} + 2>/dev/null
