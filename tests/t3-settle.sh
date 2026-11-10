@@ -54,7 +54,9 @@ kid() {  # id parent [extra json]
   kid kid-npfresh mcp:np ",\"updatedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""; printf ','
   printf '{"id":"mcp:op","title":"OP","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[]},'
   kid kid-opold mcp:op; printf ','
-  printf '{"id":"mcp:mon","title":"MON","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[{"kind":"monitor","id":"pull-request-watch:1"}]}'
+  printf '{"id":"mcp:%s","title":"X","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[%s]},' cmd '{"kind":"command","taskId":"c1"}'
+  printf '{"id":"mcp:%s","title":"X","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[%s]},' mon2 '{"kind":"monitor","taskId":"watch:9"}'
+  printf '{"id":"mcp:mon","title":"MON","status":"completed","activityRunStatus":null,"settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[{"kind":"monitor","taskId":"pull-request-watch:1"}]}'
   printf '],"archivedThreads":[{"id":"arch-1"}],"projects":[]}\n'
 } > "$D/shell.json"
 cp "$D/shell.json" "$TMP/shell.good"
@@ -149,8 +151,17 @@ run --apply mcp:op
 is "parent with only an old child settles" "$RC" 0
 has "settled" "settled mcp:op" "$OUT"
 run --apply mcp:mon
-is "a monitor entry without childThreadId is not busy" "$RC" 0
+is "a pull-request-watch monitor alone is not busy" "$RC" 0
 has "monitor thread settled" "settled mcp:mon" "$OUT"
+: > "$D/srv.log"
+run --apply mcp:cmd
+is "a command entry without childThreadId refuses, exit 1" "$RC" 1
+has "REFUSED mcp:cmd" "REFUSED mcp:cmd: not idle: its own sub-agent is still running" "$OUT"
+is "nothing sent for command" "$(srv)" ""
+run --apply mcp:mon2
+is "a non-PR monitor refuses, exit 1" "$RC" 1
+has "REFUSED mcp:mon2" "REFUSED mcp:mon2: not idle" "$OUT"
+is "nothing sent for monitor" "$(srv)" ""
 : > "$D/srv.log"
 
 echo "B. --apply one named thread"

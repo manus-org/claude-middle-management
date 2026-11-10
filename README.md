@@ -841,8 +841,10 @@ plugin never degrades silently. While the config is invalid, the worktree guard 
 
 ## Honesty notes
 
-- `t3-settle.py` judges "idle" from T3's thread list; a sub-agent child whose parent is not in the list
-  is guarded only by the 120 s quiet check, and what T3 does with a settle sent to a working sub-agent is untested.
+- `t3-settle.py` judges "idle" from T3's thread list. For a sub-agent child, the 120 s quiet check is the only
+  guard when its parent is not in the list, or when the parent's run just finished and T3 has not yet listed the
+  child; a sub-agent inside one tool call longer than 120 s can then be settled. What T3 does with a settle sent
+  to a working sub-agent is untested.
 - The worktree guard is a **guardrail, not a security boundary**: it intercepts the
   Edit/Write tools, not Bash-side writes (`sed -i`, redirects, `git checkout`).
 - The staging guard's escape hatch: only when your user explicitly allows a direct

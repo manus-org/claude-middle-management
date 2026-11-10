@@ -15,7 +15,7 @@ the server's own RPC has no live-run requirement. Route: GET <t3Url>/ws?orchestr
 `Authorization: Bearer <token>`, Effect-RPC JSON frames, method orchestration.dispatchCommand.
 Idle = not settled, archived or deleted, no live run (status / activityRunStatus not preparing,
 queued, starting, running, waiting), no pending request, no sub-agent of its own still running (its
-own pendingBackgroundTasks empty, none of its children listed live), and not a childThreadId in its parent's
+own pendingBackgroundTasks empty except pull-request-watch monitors, none of its children listed live), and not a childThreadId in its parent's
 pendingBackgroundTasks: a sub-agent child row carries no run state of its own (it reads "idle" while
 the sub-agent runs), only its parent lists it as live. While the parent's run is live that list
 is empty (filled only once the run completes), so a sub-agent child of a live parent is never idle; and
@@ -225,6 +225,11 @@ def message(cause):
     return json.dumps(cause)[:200]
 
 
+def not_pr_watch(k):
+    """A pending entry (subagent, command, monitor, background_task) keeps its thread busy, except a PR-watch monitor."""
+    return isinstance(k, dict) and not (k.get("kind") == "monitor" and str(k.get("taskId") or "").startswith("pull-request-watch:"))
+
+
 def main(argv):
     apply = "--apply" in argv
     args = [a for a in argv if a != "--apply"]
@@ -246,7 +251,7 @@ def main(argv):
     live_kids = {k.get("childThreadId") for t in body["threads"] for k in (t.get("pendingBackgroundTasks") or [])
                  if isinstance(k, dict) and k.get("childThreadId")}
     busy = {t["id"] for t in body["threads"] if any(
-        isinstance(k, dict) and k.get("childThreadId") for k in (t.get("pendingBackgroundTasks") or []))} | {
+        not_pr_watch(k) for k in (t.get("pendingBackgroundTasks") or []))} | {
         (t.get("lineage") or {}).get("parentThreadId") for t in body["threads"] if t["id"] in live_kids}
     archived = {t.get("id") for t in body.get("archivedThreads") or [] if isinstance(t, dict)}
     refused, todo, skipped = [], [], []   # refused: (id, reason), never sent to the server
