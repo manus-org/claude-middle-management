@@ -17,9 +17,9 @@ Idle = not settled, archived or deleted, no live run (status / activityRunStatus
 queued, starting, running, waiting), no pending request, no sub-agent of its own still running (its
 own pendingBackgroundTasks empty, none of its children listed live), and not a childThreadId in its parent's
 pendingBackgroundTasks: a sub-agent child row carries no run state of its own (it reads "idle" while
-the sub-agent runs), only its parent lists it as live. That list was seen empty for a moment while
-the parent's run ended (10.11.2026), so a sub-agent child must also be quiet for QUIET_S (its
-updatedAt moves with every item while it works). A thread that is not idle is never sent.
+the sub-agent runs), only its parent lists it as live. While the parent's run is live that list
+is empty (filled only once the run completes), so a sub-agent child of a live parent is never idle; and
+a sub-agent child must also be quiet for QUIET_S (its updatedAt moves with every item while it works). A thread that is not idle is never sent.
 Config (<CLAUDE_CONFIG_DIR or ~/.claude>/middle-management.json, the file config-check.sh checks):
 t3Url (default http://127.0.0.1:$T3CODE_PORT, 8470 when unset), t3TokenFile (default
 ~/.config/t3-threads/token, refused when group/other can read it). The token only goes into request
@@ -29,8 +29,8 @@ Exit 0 all settled (or a clean dry run), 1 any refusal, T3 unreachable or not un
 import base64, datetime, hashlib, json, os, socket, ssl, sys, time, urllib.error, urllib.parse, urllib.request, uuid
 
 LIVE = {"preparing", "queued", "starting", "running", "waiting"}
-QUIET_S = 120   # ponytail: a heuristic second guard; a sub-agent silent >2 min in one tool call AND
-                # missing from its parent's list at that instant would still pass
+QUIET_S = 120   # ponytail: a heuristic last guard for a child whose parent is not in the shell list;
+                # such a child silent >2 min in one tool call would still pass
 NEWER = "T3 Code may have changed after an update: update this plugin, or tell its maintainer."
 USAGE = "usage: t3-settle.py [--apply] --children-of <threadId> | t3-settle.py [--apply] <threadId>..."
 
@@ -87,7 +87,7 @@ def shell(base, tok):
     return body
 
 
-def why_not(t, live_kids, busy):
+def why_not(t, live_kids, busy, by_id):
     """'' for an idle thread, else the reason it is not settled."""
     for k in ("settledAt", "archivedAt", "deletedAt"):
         if t.get(k):
@@ -101,6 +101,11 @@ def why_not(t, live_kids, busy):
     if t["id"] in busy:
         return "its own sub-agent is still running (pendingBackgroundTasks)"
     if (t.get("lineage") or {}).get("relationshipToParent") == "subagent":
+        # a running parent does not list its working sub-agents yet (the list fills when its run
+        # completes), so a live parent protects them; a parent missing from the list: quiet check only
+        par = by_id.get((t.get("lineage") or {}).get("parentThreadId"))
+        if par and (par["status"] in LIVE or par.get("activityRunStatus") in LIVE):
+            return "its parent's run is live (sub-agents are unlisted while it runs)"
         try:
             age = time.time() - datetime.datetime.fromisoformat(str(t.get("updatedAt")).replace("Z", "+00:00")).timestamp()
         except ValueError:
@@ -238,14 +243,14 @@ def main(argv):
         for t in body["threads"]:
             if (t.get("lineage") or {}).get("parentThreadId") == parent and \
                     (t.get("lineage") or {}).get("relationshipToParent") == "subagent":
-                w = why_not(t, live_kids, busy)
+                w = why_not(t, live_kids, busy, rows)
                 if not w:
                     todo.append(t)
                 elif w not in ("settled", "archived", "deleted"):   # those are done, not skipped
                     skipped.append((t["id"], w))
     else:
         for tid in dict.fromkeys(args):
-            w = ("archived" if tid in archived else "no such thread") if tid not in rows else why_not(rows[tid], live_kids, busy)
+            w = ("archived" if tid in archived else "no such thread") if tid not in rows else why_not(rows[tid], live_kids, busy, rows)
             (refused.append((tid, "not idle: " + w)) if w else todo.append(rows[tid]))
     if not apply:
         for t in todo:

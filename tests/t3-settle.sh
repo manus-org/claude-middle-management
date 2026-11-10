@@ -47,7 +47,9 @@ kid() {  # id parent [extra json]
   kid kid-run mcp:parent ',"status":"running","activityRunStatus":"running"'; printf ','
   kid kid-ask mcp:parent ',"pendingRuntimeRequest":{"kind":"approval"}'; printf ','
   kid kid-fresh mcp:parent ",\"updatedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\""; printf ','
-  kid kid-other mcp:other
+  kid kid-other mcp:other; printf ','
+  printf '{"id":"mcp:runpar","title":"Running parent","status":"running","activityRunStatus":"running","settledAt":null,"archivedAt":null,"pendingRuntimeRequest":null,"lineage":{"parentThreadId":null,"relationshipToParent":null},"pendingBackgroundTasks":[]},'
+  kid kid-underrun mcp:runpar
   printf '],"archivedThreads":[{"id":"arch-1"}],"projects":[]}\n'
 } > "$D/shell.json"
 cp "$D/shell.json" "$TMP/shell.good"
@@ -122,6 +124,16 @@ lacks "a settled child is done, not listed as skipped" "kid-settled" "$OUT"
 lacks "another parent's child is not listed" "kid-other" "$OUT"
 has "count line" "2 would be settled; add --apply to settle them." "$OUT"
 is "dry run sends nothing" "$(srv)" ""
+
+echo "A2. child of a running parent (unlisted while the run is live)"
+run --children-of mcp:runpar
+is "dry run exits 0" "$RC" 0
+has "old child skipped with the live-parent reason" "skipped kid-underrun: its parent's run is live" "$OUT"
+has "nothing would be settled" "0 would be settled" "$OUT"
+run --apply kid-underrun
+is "naming it is refused, exit 1" "$RC" 1
+has "REFUSED with the live-parent reason" "REFUSED kid-underrun: not idle: its parent's run is live" "$OUT"
+is "nothing sent" "$(srv)" ""
 
 echo "B. --apply one named thread"
 run --apply kid-a
