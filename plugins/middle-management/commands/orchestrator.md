@@ -83,7 +83,8 @@ coordinator's thread (README, "T3 Code"). A script cannot call MCP tools, so you
    the old one. **Coordinator model:** when `claim` prints a `Coordinator model:` line, compare your
    model with that rule (`orchestrator_capabilities` lists the available models); if a better match
    is available, tell your user that first and recreate your report task on it.
-5. **Handover:** launch the successor thread (`t3_thread_launch`), then
+5. **Handover** (the banner's cue is a first line `CONTEXT <N>k tokens, past the hand-over mark`):
+   launch the successor thread (`t3_thread_launch`), then
    `orchestrator.sh t3-handover --to-thread <id> --to-title <title>`. Keep seat and report task
    until the successor has claimed; forward late reports to it with `t3_thread_send`.
 6. **Release / wrap:** `orchestrator.sh release` (it deletes the sidecar and prints the task id),

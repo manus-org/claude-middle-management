@@ -106,6 +106,8 @@ validate() {
           and (.reviewer | . == null or (type == "string" and test("\\A[A-Za-z0-9][A-Za-z0-9-]*\\z")))))
     # t3Url: the base URL of the T3 server (watcher, t3-token.sh); a plain http(s) URL, nothing else.
     and ((.t3Url // "http://x") | (type == "string" and test("\\Ahttps?://[^\\s\"]+\\z")))
+    # 0.18.0 (README "Configuration"): the hand-over line of the coordinator banner; 0 = off.
+    and (.handoverTokens | . == null or (type == "number" and . >= 0))
     # 0.15.0 (README "Quiet reports"): worker reports into an awake T3 coordinator without a turn each.
     and (.quietReports | . == null or ((type == "object")
           and ((.enabled // false) | type == "boolean")

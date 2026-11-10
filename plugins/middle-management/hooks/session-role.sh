@@ -5,7 +5,8 @@
 # scripts/config-check.sh; runs scripts/open-items.py count in the coordinator branch. Reads the
 # T3 sidecar <marker dir>/orchestrator.t3.json (written by scripts/orchestrator.sh t3-bind) for the
 # T3 lines; never its reportUrl. Reads the config key quietReports.enabled (README "Quiet reports")
-# for the coordinator's report line.
+# for the coordinator's report line, and handoverTokens for its hand-over line (runs
+# scripts/peer-state.py --ctx on the hook input's transcript_path).
 #
 # Exactly ONE session coordinates, every other session is a worker. Two sources for
 # "who coordinates", in this order:
@@ -64,7 +65,9 @@ elif [ "$CFG_STATE" -eq 0 ]; then
       done
 fi
 # --- role detection ---------------------------------------------------------------
-MY_ID=$(jq -r '.session_id // ""')
+# Stdin is read once: the sessionId, and the transcript for the coordinator's hand-over line.
+{ read -r MY_ID; read -r MY_TP; } < <(jq -r '.session_id // "", .transcript_path // ""' 2>/dev/null)
+MY_ID=${MY_ID:-}; MY_TP=${MY_TP:-}
 
 # cwd<TAB>name<TAB>sessionId of every living interactive session. The (possibly empty) name comes
 # LAST in the jq array: `read` with a tab IFS collapses empty fields, so a nameless session would
@@ -140,6 +143,20 @@ MY_NAME=$(name_of "$MY_ID")
 # Marker route: identity by sessionId. Name route: by name, but never an empty one.
 if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
    || { [ "$ORCH_SRC" = name ] && [ -n "$MY_NAME" ] && [ "$MY_NAME" = "$ORCH" ]; }; then
+  # Hand-over line (config handoverTokens, default 300000, 0 = off): the FIRST line of this branch.
+  # Fail soft: no transcript, no figure, a non-number key = no line, never a broken banner.
+  HT=$(jq -r '(.handoverTokens // 300000) | numbers | floor' "$CFG_FILE" 2>/dev/null) || HT=300000
+  if [ "${HT:-0}" -gt 0 ] && [ -n "$MY_TP" ] \
+     && CTX=$(python3 "$PLUGIN_ROOT/scripts/peer-state.py" --ctx "$MY_TP" 2>/dev/null) \
+     && [[ "$CTX" =~ ^[0-9]+$ ]] && [ "$CTX" -ge "$HT" ]; then
+    if [ -n "${T3CODE_HOME:-}" ]; then
+      HOW='launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>.'
+    else
+      HOW='ask your user for a fresh session, send it the path to your handoff doc, release the seat; it claims (middle-management skill, handover).'
+    fi
+    printf 'CONTEXT %dk tokens, past the hand-over mark of %dk: hand over now — %s%s\n' \
+      $((CTX / 1000)) $((HT / 1000)) "$HOW" "$([ "$CTX" -ge $((2 * HT)) ] && echo ' Start nothing else first.')"
+  fi
   printf 'Session role: ORCHESTRATOR%s ("%s", by %s). You plan with your user and route the work —\n' \
     "$OF" "${MY_NAME:-unnamed}" "$([ "$ORCH_SRC" = marker ] && echo marker || echo name)"
   printf 'you do NOT build yourself. Directly allowed: planning/decision docs, chat/GitHub coordination,\n'

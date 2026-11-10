@@ -196,6 +196,11 @@ gets its default and says so. It is the same list you repeat to your user, not a
 question sent through the off-keyboard channel names where the answer should come back, because
 the plugin ships no inbound leg and a reply that lands nowhere reads as silence.
 
+**Before a wave of pull requests** (two or more lanes READY or with open pull requests), have
+the integration run done first, through a sub-agent: all those branches merged onto one
+integration branch, the full suite and the E2E tests run there, and the result with the tip SHAs
+recorded where you track lanes.
+
 **After every landing wave, check yourself before the next one.** In your own turn, no
 sub-agent: (1) re-read your team's lane rules and the head of the latest handover, because the
 banner keeps the plugin's rules in view but not the long project rules; (2) count the active
@@ -523,7 +528,10 @@ Then it sends that session the PATH to the handoff doc by peer message. The outg
 coordinator releases the seat, the new one claims it. Under T3 Code the outgoing coordinator
 launches the successor's thread, sends it the path with `t3_thread_send`, runs
 `orchestrator.sh t3-handover --to-thread <id> --to-title <title>` and keeps seat and report task
-until the successor has claimed (`/orchestrator`, T3 branch).
+until the successor has claimed (`/orchestrator`, T3 branch). The cue is the role banner: once
+your context passes `handoverTokens` (default 300k), its first line reads `CONTEXT <N>k tokens,
+past the hand-over mark ...: hand over now`, and past twice the mark it adds `Start nothing else
+first.`; hand over before anything else.
 
 ## Troubleshooting
 

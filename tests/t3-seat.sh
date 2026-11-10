@@ -9,6 +9,7 @@
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
 #   H  coordinatorModelRule: the claim line (plain and --morning), config-check validate
+#   I  handoverTokens: the coordinator banner's hand-over line (fake transcripts), config-check validate
 #   Z  no webhook URL in any output
 # The takeover wake runs the REAL t3-wake.sh against a local HTTP stub that logs the request path.
 set -uo pipefail
@@ -323,6 +324,41 @@ mkdir -p "$TMP/vc"
 is "config-check: a string is valid" "$(vcfg '{"coordinatorModelRule":"the highest Fable"}')" 0
 is "config-check: blank is valid" "$(vcfg '{"coordinatorModelRule":""}')" 0
 is "config-check: a number is rejected" "$(vcfg '{"coordinatorModelRule":5}')" 1
+
+echo "== I: handoverTokens hand-over line =="
+H=$(new_home); as_s "$H" ho "$H" claim >/dev/null; me "$H" ho "$H"
+tx() {  # <tokens>: a fake transcript whose last usage line sums to <tokens>
+  printf '{"type":"user","message":{"content":"hi"}}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' "$(($1 - 1))" > "$TMP/tx.jsonl"; }
+hrole() {  # <sessionId> <transcript> [T3 home or ""]
+  printf '{"session_id":"%s","transcript_path":"%s"}' "$1" "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="${3-$H/.t3}" bash "$ROLE" 2>&1; }
+tx 299000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+lacks "below the mark (default 300k) -> no hand-over line" "CONTEXT" "$OUT"
+has "...the banner is unchanged" "Session role: ORCHESTRATOR" "$OUT"
+tx 412000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+is "past the mark, T3 -> the FIRST line says hand over now" "$(head -1 <<<"$OUT")" \
+  "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>."
+lacks "...below 2x: no 'start nothing else'" "Start nothing else first." "$OUT"
+has "...the rest of the banner follows" "Session role: ORCHESTRATOR" "$OUT"
+OUT=$(hrole sess-ho "$TMP/tx.jsonl" ""); L1=$(head -1 <<<"$OUT")
+has "past the mark, outside T3 -> the plain handover path" "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — ask your user for a fresh session" "$L1"
+lacks "...no t3-handover outside T3" "t3-handover" "$L1"
+tx 600000; OUT=$(hrole sess-ho "$TMP/tx.jsonl")
+has "at 2x the mark -> 'Start nothing else first.' on the first line" "Start nothing else first." "$(head -1 <<<"$OUT")"
+live "$H" w9 "$H" >/dev/null; lacks "a worker never gets the line" "CONTEXT" "$(hrole sess-w9 "$TMP/tx.jsonl")"
+lacks "no transcript file -> no line" "CONTEXT" "$(hrole sess-ho "$TMP/none.jsonl")"
+printf 'not json\n{"type":"assistant","message":{"usage":{"input_tokens":0}}}\n' > "$TMP/bad.jsonl"
+OUT=$(hrole sess-ho "$TMP/bad.jsonl"); lacks "unreadable transcript (no usage figure) -> no line" "CONTEXT" "$OUT"
+has "...and the banner still prints" "Session role: ORCHESTRATOR" "$OUT"
+lacks "no transcript_path in the input -> no line" "CONTEXT" "$(printf '{"session_id":"sess-ho"}' | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="$H/.t3" bash "$ROLE" 2>&1)"
+printf '{"handoverTokens":0}\n' > "$H/.claude/middle-management.json"
+lacks "handoverTokens 0 -> off" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverTokens":100000}\n' > "$H/.claude/middle-management.json"; tx 150000
+has "handoverTokens 100000 -> its mark" "CONTEXT 150k tokens, past the hand-over mark of 100k" "$(hrole sess-ho "$TMP/tx.jsonl")"
+rm -f "$H/.claude/sessions/$$.json"
+is "config-check: handoverTokens number is valid" "$(vcfg '{"handoverTokens":300000}')" 0
+is "config-check: handoverTokens 0 is valid" "$(vcfg '{"handoverTokens":0}')" 0
+is "config-check: handoverTokens string is rejected" "$(vcfg '{"handoverTokens":"300k"}')" 1
+is "config-check: handoverTokens negative is rejected" "$(vcfg '{"handoverTokens":-1}')" 1
 
 echo "== Z =="
 lacks "no webhook secret in any output" "$S1" "$ALL"; lacks "...nor the second" "$S2" "$ALL"

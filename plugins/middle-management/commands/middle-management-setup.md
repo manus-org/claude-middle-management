@@ -45,6 +45,7 @@ Schema (setup adds no other key):
   "userName": "user",
   "okBy": "user",
   "coordinatorModelRule": "",
+  "handoverTokens": 300000,
   "remindAfterHours": 2,
   "remindWindow": "08:00-22:00",
   "pageCommand": "",

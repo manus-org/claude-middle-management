@@ -262,6 +262,10 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
   on, in the user's words. Every successful `claim` (also `--morning`) prints it in one line that
   tells the session to compare its model with it and, on a better match, to tell the user and
   recreate its report task there. Absent or blank prints nothing.
+- `handoverTokens` (optional, 0.18.0, default 300000, `0` = off): the context size, in tokens,
+  at which the coordinator's role banner opens with a hand-over line (`CONTEXT <N>k tokens, past
+  the hand-over mark of <T>k: hand over now ...`, from the hook input's transcript; past twice
+  the mark it adds `Start nothing else first.`). No figure, no line.
 - `morningTakeover`, `morningTaskUrlFile`, `morningWaitUntil`, `morningRoot` (optional, 0.11.1):
   the morning chain under T3 Code. See [Morning coordinator in T3 Code](#morning-coordinator-in-t3-code).
 - `replyTimestamp`, `intentCheck`, `intentCheckVerbs` (optional, 0.11.1, defaults `false` /
