@@ -3,10 +3,12 @@
 # Consumers: tests/run.sh (runs it with the other matrices); by hand from the repo root:
 #   bash tests/t3-settle.sh
 #
-#   A  dry run --children-of: only idle sub-agent children (quiet >2 min), nothing sent
+#   A  dry run --children-of: only idle sub-agent children (quiet >2 min), each skipped one with its
+#      reason, nothing sent
 #   B  --apply on one named thread: one masked thread.settle, ping answered, 64-bit frame read
 #   C  --apply --children-of with a server refusal -> exit 1
-#   D  named threads that are not idle are refused without being sent -> exit 1
+#   D  named threads that are not idle are refused without being sent -> exit 1, among them a
+#      parent whose own sub-agent still runs
 #   E  unreachable server / protocol not understood -> exit 1
 #   F  usage and config errors -> exit 2
 #   Z  the token appears in no output
@@ -111,7 +113,13 @@ is "dry run exits 0" "$RC" 0
 is "dry run lists the two idle children, in order" "$(printf '%s\n' "$OUT" | grep -c '^kid-')" 2
 has "line format <id>  <status>  <title>" "kid-a  idle  T kid-a" "$OUT"
 has "kid-refuse is a candidate" "kid-refuse  idle" "$OUT"
-for k in kid-live kid-settled kid-run kid-ask kid-fresh kid-other mcp:parent; do lacks "dry run leaves out $k" "$k " "$OUT"; done
+for k in kid-live kid-settled kid-run kid-ask kid-fresh kid-other mcp:parent; do lacks "dry run does not offer $k" "$k " "$OUT"; done
+has "skipped live child named with its reason" "skipped kid-live: sub-agent still running" "$OUT"
+has "skipped running child named" "skipped kid-run: run running" "$OUT"
+has "skipped asking child named" "skipped kid-ask: waiting on an approval or question" "$OUT"
+has "skipped fresh child named" "skipped kid-fresh: sub-agent active in the last 120 s" "$OUT"
+lacks "a settled child is done, not listed as skipped" "kid-settled" "$OUT"
+lacks "another parent's child is not listed" "kid-other" "$OUT"
 has "count line" "2 would be settled; add --apply to settle them." "$OUT"
 is "dry run sends nothing" "$(srv)" ""
 
@@ -146,6 +154,14 @@ has "unknown refused" "REFUSED nope: not idle: no such thread" "$OUT"
 is "none of them was sent (no WebSocket opened)" "$(srv)" ""
 run kid-live
 is "dry run of a not-idle name exits 1" "$RC" 1
+run mcp:parent
+is "dry run: parent with a live sub-agent exits 1 (refused, the named-thread convention)" "$RC" 1
+has "parent refused with its reason" "REFUSED mcp:parent: not idle: its own sub-agent is still running" "$OUT"
+has "parent not offered" "0 would be settled" "$OUT"
+run --apply mcp:parent
+is "--apply on that parent exits 1" "$RC" 1
+has "--apply refuses the parent" "REFUSED mcp:parent: not idle: its own sub-agent is still running" "$OUT"
+is "the parent was not sent" "$(srv)" ""
 
 echo "E. unreachable / not understood"
 cp "$CFG/middle-management.json" "$TMP/cfg.bak"

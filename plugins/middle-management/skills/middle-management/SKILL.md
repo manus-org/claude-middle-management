@@ -459,8 +459,11 @@ into a running session. The one exception is around half an hour of silence from
 and then only for safe, reversible work: a second lane in a session that already has one, or
 sub-agents in your own.
 
-**A wrapped session is closed for good.** After every wrap, tell your user unprompted which
-tabs they can close — and read that list off disk instead of waking the sessions to ask:
+**A wrapped session is closed for good.** Under T3 Code a worker's wrap report is your cue to
+run the settle check and settle that thread in your own turn, right when the report arrives, not
+next morning (`middle-management:morning-ritual` step 3, "T3 Code threads"). Outside T3 Code,
+after every wrap, tell your user unprompted which tabs they can close — and read that list off
+disk instead of waking the sessions to ask:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/peer-state.py" --wrapped

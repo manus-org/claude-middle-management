@@ -207,7 +207,12 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   printf 'silence from your user, and only for safe, reversible work). A wrapped session is closed for\n'
   printf 'good. After every wrap, run python3 "%s/scripts/peer-state.py" --wrapped%s and hand\n' "$PLUGIN_ROOT" "$PS_SCOPE"
   printf 'your user the tab list it prints: topic, idle age and the last line each session wrote — the\n'
-  printf 'text at the bottom of that tab, which is how your user finds it. NEVER peer-message a session\n'
+  if [ -n "${T3CODE_HOME:-}" ]; then
+    printf 'text at the bottom of that tab, which is how your user finds it (in T3: run the settle check,\n'
+    printf 'morning-ritual step 3, and settle instead). NEVER peer-message a session\n'
+  else
+    printf 'text at the bottom of that tab, which is how your user finds it. NEVER peer-message a session\n'
+  fi
   printf 'that reads as wrapped, and read state off disk before messaging one idle a while: the message\n'
   printf 'makes that session re-pay its ENTIRE context in fresh input tokens.\n'
   printf 'The same reader with --waiting%s lists sessions WAITING on their user: "permission" = MAY be parked\n' "$PS_SCOPE"

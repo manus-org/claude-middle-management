@@ -6,14 +6,16 @@ Consumers: the coordinator's settle step (skills morning-ritual, middle-manageme
 
 Usage: t3-settle.py [--apply] --children-of <threadId>   the idle, unsettled sub-agent children of that thread
        t3-settle.py [--apply] <threadId>...              exactly the named threads
-Default is a dry run: one line per candidate `<threadId>  <status>  <title>`, then the count.
+Default is a dry run: one line per candidate `<threadId>  <status>  <title>`, with --children-of one
+`skipped <id>: <reason>` per child that is not idle (settled ones left out), then the count.
 --apply sends one `thread.settle` per thread and prints `settled <id>` or `REFUSED <id>: <reason>`.
 
 Why a script: the MCP tool t3_thread_organize refuses from a background sub-agent (parent_not_active);
 the server's own RPC has no live-run requirement. Route: GET <t3Url>/ws?orchestrationProtocol=2 with
 `Authorization: Bearer <token>`, Effect-RPC JSON frames, method orchestration.dispatchCommand.
 Idle = not settled, archived or deleted, no live run (status / activityRunStatus not preparing,
-queued, starting, running, waiting), no pending request, and not a childThreadId in its parent's
+queued, starting, running, waiting), no pending request, no sub-agent of its own still running (its
+own pendingBackgroundTasks empty, none of its children listed live), and not a childThreadId in its parent's
 pendingBackgroundTasks: a sub-agent child row carries no run state of its own (it reads "idle" while
 the sub-agent runs), only its parent lists it as live. That list was seen empty for a moment while
 the parent's run ended (10.11.2026), so a sub-agent child must also be quiet for QUIET_S (its
@@ -85,7 +87,7 @@ def shell(base, tok):
     return body
 
 
-def why_not(t, live_kids):
+def why_not(t, live_kids, busy):
     """'' for an idle thread, else the reason it is not settled."""
     for k in ("settledAt", "archivedAt", "deletedAt"):
         if t.get(k):
@@ -96,6 +98,8 @@ def why_not(t, live_kids):
         return "waiting on an approval or question"
     if t["id"] in live_kids:
         return "sub-agent still running (listed in its parent's pendingBackgroundTasks)"
+    if t["id"] in busy:
+        return "its own sub-agent is still running (pendingBackgroundTasks)"
     if (t.get("lineage") or {}).get("relationshipToParent") == "subagent":
         try:
             age = time.time() - datetime.datetime.fromisoformat(str(t.get("updatedAt")).replace("Z", "+00:00")).timestamp()
@@ -224,21 +228,30 @@ def main(argv):
     rows = {t["id"]: t for t in body["threads"]}
     live_kids = {k.get("childThreadId") for t in body["threads"] for k in (t.get("pendingBackgroundTasks") or [])
                  if isinstance(k, dict)}
+    busy = {t["id"] for t in body["threads"] if t.get("pendingBackgroundTasks")} | {
+        (t.get("lineage") or {}).get("parentThreadId") for t in body["threads"] if t["id"] in live_kids}
     archived = {t.get("id") for t in body.get("archivedThreads") or [] if isinstance(t, dict)}
-    refused = []          # (id, reason): never sent to the server
+    refused, todo, skipped = [], [], []   # refused: (id, reason), never sent to the server
     if parent:
         if parent not in rows and parent not in archived:
             die(2, "no thread %s in T3 Code" % parent)
-        todo = [t for t in body["threads"] if (t.get("lineage") or {}).get("parentThreadId") == parent
-                and (t.get("lineage") or {}).get("relationshipToParent") == "subagent" and not why_not(t, live_kids)]
+        for t in body["threads"]:
+            if (t.get("lineage") or {}).get("parentThreadId") == parent and \
+                    (t.get("lineage") or {}).get("relationshipToParent") == "subagent":
+                w = why_not(t, live_kids, busy)
+                if not w:
+                    todo.append(t)
+                elif w not in ("settled", "archived", "deleted"):   # those are done, not skipped
+                    skipped.append((t["id"], w))
     else:
-        todo = []
         for tid in dict.fromkeys(args):
-            w = ("archived" if tid in archived else "no such thread") if tid not in rows else why_not(rows[tid], live_kids)
+            w = ("archived" if tid in archived else "no such thread") if tid not in rows else why_not(rows[tid], live_kids, busy)
             (refused.append((tid, "not idle: " + w)) if w else todo.append(rows[tid]))
     if not apply:
         for t in todo:
             print("%s  %s  %s" % (t["id"], t["status"], " ".join(str(t["title"] or "untitled").split())))
+        for tid, w in skipped:
+            print("skipped %s: %s" % (tid, w))
         for tid, w in refused:
             print("REFUSED %s: %s" % (tid, w))
         print("%d would be settled; add --apply to settle %s." % (len(todo), "it" if len(todo) == 1 else "them"))

@@ -67,7 +67,8 @@ has "t3-bind without a URL -> refused" "REFUSED: stdin carries no usable" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-bind --thread mcp:t-c1 --title "coord one"); has "t3-bind missing flags -> usage" "Usage: orchestrator.sh t3-bind" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" w1 "$H" t3-bind --thread x --title x --task x --model x); has "t3-bind by a non-holder -> refused" "REFUSED: this session does not hold" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-bind --thread mcp:t-c1 --title "coord one" --task task-1 --model fable); ALL="$ALL$OUT"
-has "t3-bind -> OK" "OK: T3 thread mcp:t-c1" "$OUT"; has "...names the model-change rule" "t3-bind it, then delete_scheduled_task task-1" "$OUT"
+has "t3-bind -> OK" "OK: T3 thread mcp:t-c1" "$OUT"; has "...names the model-change rule" "After a model or effort change: a new report task" "$OUT"
+lacks "...a first bind names no task to delete (never the one just bound)" "delete_scheduled_task" "$OUT"
 is "...sidecar mode 0600" "$(stat -c %a "$SIDE")" 600
 is "...sidecar fields" "$(jq -c '[.sessionId,.threadId,.title,.model,.reportTaskId,(.reportUrl|length>0),has("previous")]' "$SIDE")" '["sess-c1","mcp:t-c1","coord one","fable","task-1",true,false]'
 OUT=$(as_s "$H" c1 "$H" status); ALL="$ALL$OUT"; has "status shows thread + title" 'thread mcp:t-c1 "coord one"' "$OUT"
@@ -90,9 +91,14 @@ has "...the wake went to the OLD address" "/api/hooks/t1/$S1" "$(grep 'seat take
 has "...with the takeover text" "seat taken over by coord two (thread mcp:t-c2)" "$(cat "$TMP/hook.log")"
 lacks "...nothing went to the new address" "$S2" "$(cat "$TMP/hook.log")"
 is "...previous = c1" "$(jq -c '.previous | [.sessionId,.threadId,.reportTaskId]' "$SIDE")" '["sess-c1","mcp:t-c1","task-1"]'
+lacks "...a takeover bind names no task to delete (the old holder deletes its own)" "delete_scheduled_task" "$OUT"
 is "...no handover any more" "$(jq -r 'has("handover")' "$SIDE")" false
 N=$(wc -l < "$TMP/hook.log")
-printf '%s\n' "$U2" | as_s "$H" c2 "$H" t3-bind --thread mcp:t-c2 --title "coord two" --task task-3 --model fable >/dev/null
+OUT=$(printf '%s\n' "$U2" | as_s "$H" c2 "$H" t3-bind --thread mcp:t-c2 --title "coord two" --task task-3 --model fable)
+has "a re-bind with a new task names the OLD one to delete" "Delete the old report task now: delete_scheduled_task task-2" "$OUT"
+lacks "...never the task just bound" "delete_scheduled_task task-3" "$OUT"
+OUT=$(printf '%s\n' "$U2" | as_s "$H" c2 "$H" t3-bind --thread mcp:t-c2 --title "coord two" --task task-3 --model fable)
+lacks "a re-bind with the same task names nothing to delete" "delete_scheduled_task" "$OUT"
 is "a re-bind keeps previous" "$(jq -r '.previous.sessionId + " " + .reportTaskId' "$SIDE")" "sess-c1 task-3"
 is "...and wakes nobody" "$(wc -l < "$TMP/hook.log")" "$N"
 OUT=$(as_s "$H" c2 "$H" status); ALL="$ALL$OUT"; has "status shows the previous holder" "previous holder coord one" "$OUT"
@@ -145,6 +151,7 @@ as_s "$H" c1 "$H" claim >/dev/null; printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-b
 me "$H" c1 "$H"; live "$H" w1 "$H" >/dev/null
 OUT=$(role "$H" sess-c1); ALL="$ALL$OUT"
 has "T3 coordinator banner" "Session role: ORCHESTRATOR" "$OUT"
+has "T3 coordinator banner: a wrap is the cue for the settle check" "in T3: run the settle check" "$OUT"
 has "...a new report task on a model change" "After a model or effort change: a NEW report task" "$OUT"
 has "...no t3_thread_wait after t3_thread_send" "do not t3_thread_wait after" "$OUT"
 has "...forward late reports after a takeover" "forward every report that" "$OUT"
