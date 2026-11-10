@@ -16,7 +16,9 @@
 #   Z  no webhook URL or token in any output
 # One local HTTP stub serves both the T3 shell (GET, checks the protocol header and the bearer) and
 # the webhook (POST, answers 202, 429 or sleeps past the timeout). `claude` is a stub on PATH.
-# Time is driven with T3W_NOW. The scripts run from a copy, like the installed unit.
+# Time is driven with T3W_NOW from T0 = today 10:00 (like tests/topics.sh): the once-a-day notices
+# and the morning hold read the day, so no offset below may cross midnight by accident, whatever the
+# wall clock says when this runs. The scripts run from a copy, like the installed unit.
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -110,7 +112,7 @@ EOF
 COORD_OK='{"id":"mcp:coord","title":"Koordinator","model":"x","modelSelection":{"model":"claude-fable-5"}}'
 LIMITED='"status":"failed","lastErrorClass":"usage_limit","usageLimitResetAt":"2026-10-20T08:00:00.000Z"'
 
-T0=$(date +%s)
+T0=$(date -d "today 10:00" +%s)   # a fixed hour, never the clock: +600 s or +1800 s must stay on T0's day
 tick() {  # $1 = seconds after T0; extra args to t3-watch.py
   local at=$1; shift
   HOME="$H" CLAUDE_CONFIG_DIR="" T3CODE_HOME="" CLAUDE_CODE_SESSION_ID="" T3CODE_PORT=1 \
@@ -413,8 +415,8 @@ lacks "the successor claimed (sidecar names it): silent" "handover" "$(notes)"
 sidecar mcp:coord
 
 echo "N. morning takeover pending: the night coordinator is never woken"
-morning() {  # posted at T0+1500 s: the hold covers ticks up to T0+3300 s
-  mkdir -p "$CFG/state/morning-t3"; printf '%s\tposted\t%s\t1\n' "$(date +%F)" "$((T0 + 1500))" > "$CFG/state/morning-t3/status"; touch -d "1 hour ago" "$SIDE"; }
+morning() {  # posted at T0+1500 s: the hold covers ticks up to T0+3300 s; the sidecar predates the post (T0-relative, like the post)
+  mkdir -p "$CFG/state/morning-t3"; printf '%s\tposted\t%s\t1\n' "$(date +%F)" "$((T0 + 1500))" > "$CFG/state/morning-t3/status"; touch -d "@$((T0 - 3600))" "$SIDE"; }
 reset; sidecar mcp:coord; morning; echo ok > "$TMP/probe.mode"
 shell "[$COORD_OK, {\"id\":\"mcp:morning\",\"title\":\"morning\",$LIMITED}]"
 tick 0; has "the limited morning thread is notified" "• morning (until" "$(notes)"
@@ -430,7 +432,7 @@ reset; sidecar mcp:coord; morning
 shell "[$COORD_OK, {\"id\":\"mcp:morning\",\"title\":\"morning\",\"status\":\"failed\",\"lastErrorClass\":\"provider_error\",\"lastError\":\"boom\"}]"
 tick 0; is "other failure: no wake" "$(nhook)" 0; has "...notify instead" "🔴 A session stopped with an error: morning" "$(notes)"
 has "...the raw error only as the last line" "Detail: provider_error: boom" "$(notes | sed -n '/^----$/q;p' | grep . | tail -1)"
-reset; sidecar mcp:coord; morning; touch -d "+1 hour" "$SIDE"; echo ok > "$TMP/probe.mode"
+reset; sidecar mcp:coord; morning; touch -d "@$((T0 + 3600))" "$SIDE"; echo ok > "$TMP/probe.mode"
 shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
 tick 0; tick 1800; is "the sidecar is newer than the post (bound): wakes as before" "$(nhook)" 1
 reset; sidecar mcp:coord; morning; sed -i "s/^$(date +%F)/2000-01-01/" "$CFG/state/morning-t3/status"; echo ok > "$TMP/probe.mode"
