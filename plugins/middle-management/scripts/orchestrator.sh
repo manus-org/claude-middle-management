@@ -515,6 +515,11 @@ case "${1:-status}" in
     if [ "$WIN" -lt "$MIDNIGHT" ]; then
       echo "No morning ritual was delivered today — run middle-management:morning-ritual now (step 6, your user's to-do list, at least)."
     fi
+    # 0.18.0 (README, configuration list): the user's rule for the coordinator's model, on every claim.
+    RULE=$(jq -r '.coordinatorModelRule | strings | select(test("\\S"))' "$(bash "$DIR/config-check.sh" file)" 2>/dev/null)
+    if [ -n "$RULE" ]; then
+      echo "Coordinator model: $RULE. Compare your model with it (in T3: orchestrator_capabilities lists the available models); if a better match is available, tell your user first and recreate your report task on it (/orchestrator \"T3 Code\" item 4)."
+    fi
     if rc_off; then
       echo ""
       echo "Remote Control is disabled at startup on this machine — coordinator sessions"
@@ -595,7 +600,7 @@ case "${1:-status}" in
     # Trust boundary: the same shape t3-wake.sh accepts (it lands in a curl config line).
     printf '%s' "$URL" | grep -Eq '^https?://[^"\\[:space:]]+$' \
       || { echo "REFUSED: stdin carries no usable http(s) report URL. Nothing changed."; exit 1; }
-    OLD_SID=$(side_id); PREV='null'
+    OLD_SID=$(side_id); PREV='null'; OLD_RT=""
     if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "$MY_ID" ]; then
       PREV=$(jq -c '{sessionId, threadId, title, reportTaskId}' "$SIDE" 2>/dev/null) || PREV='null'
       # The takeover wake goes to the PREVIOUS report address, so it is sent before the overwrite.
@@ -606,6 +611,7 @@ case "${1:-status}" in
       else echo "WARNING: the previous holder was NOT woken (t3-wake rc $WRC). Send it yourself: t3_thread_send $(side '.threadId // "?"') \"seat taken over by $F_TITLE (thread $F_THREAD)\""; fi
     elif [ "$OLD_SID" = "$MY_ID" ]; then
       PREV=$(jq -c '.previous // null' "$SIDE" 2>/dev/null) || PREV='null'   # a re-bind keeps it
+      OLD_RT=$(side '.reportTaskId // empty')   # read before the overwrite; a takeover's old task is its holder's to delete
     elif [ -z "$OLD_SID" ] && [ -f "$PREVF" ] && [ "$(jq -r '.by // empty' "$PREVF" 2>/dev/null)" = "$MY_ID" ]; then
       PREV=$(jq -c '{sessionId, threadId, title, reportTaskId}' "$PREVF" 2>/dev/null) || PREV='null'   # morning takeover: no wake
     fi
@@ -617,7 +623,8 @@ case "${1:-status}" in
       || { echo "FAILED: could not write $SIDE. Nothing is bound; delete the report task or retry."; exit 1; }
     rm -f "$PREVF"
     echo "OK: T3 thread $F_THREAD (\"$F_TITLE\") bound to the seat, report task $F_TASK, model $F_MODEL."
-    echo "After a model or effort change: update_scheduled_task $F_TASK (or claim + t3-bind again)."
+    [ -n "$OLD_RT" ] && [ "$OLD_RT" != "$F_TASK" ] && echo "Delete the old report task now: delete_scheduled_task $OLD_RT"
+    echo "After a model or effort change: a new report task from the thread on the new model, t3-bind it; this line then names the old task to delete."
     ;;
   t3-handover)
     # The outgoing holder names its successor right after launching its thread (wake-flow.md step 1).

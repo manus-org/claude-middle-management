@@ -3,7 +3,8 @@
 
 Consumers: scripts/orchestrator.sh (stale-seat check), scripts/orch-heartbeat.sh (keep-warm,
   reads --json from its installed copy), the coordinator by hand, the middle-management skill,
-  the role hook's banner (hooks/session-role.sh prints the --wrapped/--waiting [--scope] hint),
+  the role hook's banner (hooks/session-role.sh prints the --wrapped/--waiting [--scope] hint and
+  runs --ctx for the coordinator's hand-over line),
   scripts/open-items.py, scripts/topics.py and scripts/t3-inbox.py (imported: is_live, registry),
   tests/peer-state.sh, tests/t3-seat.sh.
   Reads T3 Code's provider logs (thread column) and the T3 sidecars orchestrator.t3.json (never
@@ -31,6 +32,8 @@ Usage: peer-state.py [--all|--wrapped|--waiting] [--name N] [--session-id ID] [-
   --scope NAME      only sessions of this coordinator scope, by the directory each was started in
                     (its registry entry); "default" = every session outside the listed roots
   --json            every field, for shell consumers
+  --ctx TRANSCRIPT  print that transcript's context size (tokens) and exit; exit 1, nothing
+                    printed, when unknown. Reads the transcript tail only (~0.07 s)
 T3 Code: `thread` = the session's T3 thread, from the ONE provider log keyed "session_id":"<sid>"
   (none or several -> null). `asleep_t3` (LIVE column "asleep (T3)"): the process is gone, but a
   T3 thread or a coordinator sidecar names the session and no closed marker wrapped it: a T3
@@ -775,7 +778,14 @@ def main():
                                     "was started in (its registry entry); default = every session "
                                     "outside the roots listed under scopes")
     ap.add_argument("--json", action="store_true", help="machine-readable, all fields")
+    ap.add_argument("--ctx", metavar="TRANSCRIPT", help="print this transcript's context size "
+                    "(tokens) and exit; nothing and exit 1 when unknown")
     a = ap.parse_args()
+    if a.ctx:                                  # the role hook's per-prompt call: tail only
+        n = context_size(tail_records(a.ctx))
+        if n:
+            print(n)
+        return 0 if n else 1
 
     (reg, regnames), logs = registry(), session_log()
     sid = a.session_id

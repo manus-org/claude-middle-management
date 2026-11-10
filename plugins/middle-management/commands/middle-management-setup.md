@@ -44,6 +44,8 @@ Schema (setup adds no other key):
   "quietReports": { "enabled": false, "fallbackMin": 20, "debounceMin": 10 },
   "userName": "user",
   "okBy": "user",
+  "coordinatorModelRule": "",
+  "handoverTokens": 300000,
   "remindAfterHours": 2,
   "remindWindow": "08:00-22:00",
   "pageCommand": "",
@@ -252,7 +254,9 @@ repositories; the user names them.
     `okBy` (who gives the final OK, default the user), `remindAfterHours` (2) and
     `remindWindow` ("08:00-22:00"), and `pageCommand`: a command that gets a
     pathfinder-schema `questions.json` path as `$1` and prints the page link as its last
-    line (without it, more than three due questions go out as one inline digest).
+    line (without it, more than three due questions go out as one inline digest). Ask for
+    `coordinatorModelRule` too: which model the coordinator should run on, in the user's words
+    (e.g. "the highest available Fable"); every `claim` prints it, blank prints nothing.
 
 16. **T3 Code** (only where sessions run in T3 Code threads). `t3Url`, the T3 server the
     watcher and `t3-token.sh` talk to: write `http://127.0.0.1:<port>` with the port of this
@@ -571,7 +575,8 @@ mkdir -p "$(dirname "$F")" && ( umask 077; cat > "$F" ) && chmod 600 "$F"   # UR
 ```
 
 Model and runtime of the morning thread are inherited from the thread that created the task; to
-change them later: `update_scheduled_task`.
+change them later, set the model in the T3 web UI (Settings > Scheduled tasks > edit "Morning
+coordinator"): a re-save over MCP (`update_scheduled_task`) does not change it.
 
 **Then set the workspace by hand** (MCP has no field for it). T3 0.1.0 stores this task with the
 workspace `{"type":"worktree","baseRef":"main","startFromOrigin":true}`; on a project folder that is

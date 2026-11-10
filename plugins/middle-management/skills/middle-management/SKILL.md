@@ -196,6 +196,11 @@ gets its default and says so. It is the same list you repeat to your user, not a
 question sent through the off-keyboard channel names where the answer should come back, because
 the plugin ships no inbound leg and a reply that lands nowhere reads as silence.
 
+**Before a wave of pull requests** (two or more lanes READY or with open pull requests), have
+the integration run done first, through a sub-agent: all those branches merged onto one
+integration branch, the full suite and the E2E tests run there, and the result with the tip SHAs
+recorded where you track lanes.
+
 **After every landing wave, check yourself before the next one.** In your own turn, no
 sub-agent: (1) re-read your team's lane rules and the head of the latest handover, because the
 banner keeps the plugin's rules in view but not the long project rules; (2) count the active
@@ -410,9 +415,10 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   a lost report, an open handover or a folder without coordinator; for what the coordinator must
   do it wakes the coordinator. It also renders the topics table and sends the reminders
   (README, "Follow-through").
-- **Settle, never archive.** A worker settles its own sub-agent threads and then itself as the
-  last calls of its wrap. A T3 worktree (`~/.t3/worktrees/`) belongs to T3: the worker never
-  removes it.
+- **Settle, never archive.** Settling is the coordinator's step, with a completeness check right
+  before it (`middle-management:morning-ritual` step 3, "T3 Code threads", the one definition).
+  A worker settles nothing (`middle-management:wrap`, "In a T3 Code thread"). A T3 worktree
+  (`~/.t3/worktrees/`) belongs to T3: the worker never removes it.
 - **Per folder.** With `scopeMode: "per-root"` every project root is its own scope with its own
   seat, sidecar, topics file and watcher pass, and there is no catch-all: a session outside
   every claimed root runs standalone and wakes nobody.
@@ -453,8 +459,11 @@ into a running session. The one exception is around half an hour of silence from
 and then only for safe, reversible work: a second lane in a session that already has one, or
 sub-agents in your own.
 
-**A wrapped session is closed for good.** After every wrap, tell your user unprompted which
-tabs they can close — and read that list off disk instead of waking the sessions to ask:
+**A wrapped session is closed for good.** Under T3 Code a worker's wrap report is your cue to
+run the settle check and settle that thread in your own turn, right when the report arrives, not
+next morning (`middle-management:morning-ritual` step 3, "T3 Code threads"). Outside T3 Code,
+after every wrap, tell your user unprompted which tabs they can close — and read that list off
+disk instead of waking the sessions to ask:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/peer-state.py" --wrapped
@@ -522,7 +531,10 @@ Then it sends that session the PATH to the handoff doc by peer message. The outg
 coordinator releases the seat, the new one claims it. Under T3 Code the outgoing coordinator
 launches the successor's thread, sends it the path with `t3_thread_send`, runs
 `orchestrator.sh t3-handover --to-thread <id> --to-title <title>` and keeps seat and report task
-until the successor has claimed (`/orchestrator`, T3 branch).
+until the successor has claimed (`/orchestrator`, T3 branch). The cue is the role banner: once
+your context passes `handoverTokens` (default 300k), its first line reads `CONTEXT <N>k tokens,
+past the hand-over mark ...: hand over now`, and past twice the mark it adds `Start nothing else
+first.`; hand over before anything else.
 
 ## Troubleshooting
 

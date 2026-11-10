@@ -8,6 +8,8 @@
 #   D  scopeMode per-root: two roots, no catch-all, a standalone session
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
+#   H  coordinatorModelRule: the claim line (plain and --morning), config-check validate
+#   I  handoverTokens: the coordinator banner's hand-over line (fake transcripts), config-check validate
 #   Z  no webhook URL in any output
 # The takeover wake runs the REAL t3-wake.sh against a local HTTP stub that logs the request path.
 set -uo pipefail
@@ -65,7 +67,8 @@ has "t3-bind without a URL -> refused" "REFUSED: stdin carries no usable" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-bind --thread mcp:t-c1 --title "coord one"); has "t3-bind missing flags -> usage" "Usage: orchestrator.sh t3-bind" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" w1 "$H" t3-bind --thread x --title x --task x --model x); has "t3-bind by a non-holder -> refused" "REFUSED: this session does not hold" "$OUT"
 OUT=$(printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-bind --thread mcp:t-c1 --title "coord one" --task task-1 --model fable); ALL="$ALL$OUT"
-has "t3-bind -> OK" "OK: T3 thread mcp:t-c1" "$OUT"; has "...names the model-change rule" "update_scheduled_task task-1" "$OUT"
+has "t3-bind -> OK" "OK: T3 thread mcp:t-c1" "$OUT"; has "...names the model-change rule" "After a model or effort change: a new report task" "$OUT"
+lacks "...a first bind names no task to delete (never the one just bound)" "delete_scheduled_task" "$OUT"
 is "...sidecar mode 0600" "$(stat -c %a "$SIDE")" 600
 is "...sidecar fields" "$(jq -c '[.sessionId,.threadId,.title,.model,.reportTaskId,(.reportUrl|length>0),has("previous")]' "$SIDE")" '["sess-c1","mcp:t-c1","coord one","fable","task-1",true,false]'
 OUT=$(as_s "$H" c1 "$H" status); ALL="$ALL$OUT"; has "status shows thread + title" 'thread mcp:t-c1 "coord one"' "$OUT"
@@ -88,9 +91,14 @@ has "...the wake went to the OLD address" "/api/hooks/t1/$S1" "$(grep 'seat take
 has "...with the takeover text" "seat taken over by coord two (thread mcp:t-c2)" "$(cat "$TMP/hook.log")"
 lacks "...nothing went to the new address" "$S2" "$(cat "$TMP/hook.log")"
 is "...previous = c1" "$(jq -c '.previous | [.sessionId,.threadId,.reportTaskId]' "$SIDE")" '["sess-c1","mcp:t-c1","task-1"]'
+lacks "...a takeover bind names no task to delete (the old holder deletes its own)" "delete_scheduled_task" "$OUT"
 is "...no handover any more" "$(jq -r 'has("handover")' "$SIDE")" false
 N=$(wc -l < "$TMP/hook.log")
-printf '%s\n' "$U2" | as_s "$H" c2 "$H" t3-bind --thread mcp:t-c2 --title "coord two" --task task-3 --model fable >/dev/null
+OUT=$(printf '%s\n' "$U2" | as_s "$H" c2 "$H" t3-bind --thread mcp:t-c2 --title "coord two" --task task-3 --model fable)
+has "a re-bind with a new task names the OLD one to delete" "Delete the old report task now: delete_scheduled_task task-2" "$OUT"
+lacks "...never the task just bound" "delete_scheduled_task task-3" "$OUT"
+OUT=$(printf '%s\n' "$U2" | as_s "$H" c2 "$H" t3-bind --thread mcp:t-c2 --title "coord two" --task task-3 --model fable)
+lacks "a re-bind with the same task names nothing to delete" "delete_scheduled_task" "$OUT"
 is "a re-bind keeps previous" "$(jq -r '.previous.sessionId + " " + .reportTaskId' "$SIDE")" "sess-c1 task-3"
 is "...and wakes nobody" "$(wc -l < "$TMP/hook.log")" "$N"
 OUT=$(as_s "$H" c2 "$H" status); ALL="$ALL$OUT"; has "status shows the previous holder" "previous holder coord one" "$OUT"
@@ -143,7 +151,8 @@ as_s "$H" c1 "$H" claim >/dev/null; printf '%s\n' "$U1" | as_s "$H" c1 "$H" t3-b
 me "$H" c1 "$H"; live "$H" w1 "$H" >/dev/null
 OUT=$(role "$H" sess-c1); ALL="$ALL$OUT"
 has "T3 coordinator banner" "Session role: ORCHESTRATOR" "$OUT"
-has "...update the report task on a model change" "update_scheduled_task on the" "$OUT"
+has "T3 coordinator banner: a wrap is the cue for the settle check" "in T3: run the settle check" "$OUT"
+has "...a new report task on a model change" "After a model or effort change: a NEW report task" "$OUT"
 has "...no t3_thread_wait after t3_thread_send" "do not t3_thread_wait after" "$OUT"
 has "...forward late reports after a takeover" "forward every report that" "$OUT"
 has "...Keepalive -> OK" 'exactly "Keepalive": answer exactly "OK"' "$OUT"
@@ -306,6 +315,57 @@ printf '%s\n' "$U2" | as_s "$H" m2 "$H" t3-bind --thread mcp:t-m2 --title m2 --t
 is "a foreign note is not filed as previous" "$(jq -r 'has("previous")' "$SIDE")" false
 printf '{"by":"sess-m2"}\n' > "$PF"; as_s "$H" m2 "$H" release >/dev/null
 [ -e "$PF" ] && bad "release drops the note" gone present || ok "release drops the note"
+
+echo "== H: coordinatorModelRule =="
+H=$(new_home); CF=$H/.claude/middle-management.json
+OUT=$(as_s "$H" h1 "$H" claim); lacks "no key -> no model line" "Coordinator model:" "$OUT"
+printf '{"coordinatorModelRule":"  "}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); lacks "blank key -> no model line" "Coordinator model:" "$OUT"
+printf '{"coordinatorModelRule":"the highest available Fable"}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); has "key set -> the model line" "Coordinator model: the highest available Fable. Compare your model" "$OUT"
+has "...names orchestrator_capabilities and item 4" 'orchestrator_capabilities lists the available models); if a better match is available, tell your user first and recreate your report task on it (/orchestrator "T3 Code" item 4)' "$OUT"
+g_home "3 hours ago"; jq '.coordinatorModelRule = "the highest available Fable"' "$H/.claude/middle-management.json" > "$TMP/x"; cp "$TMP/x" "$H/.claude/middle-management.json"
+OUT=$(as_s "$H" m1 "$H" claim --thread mcp:t-m1 --morning); has "--morning claim -> the model line too" "Coordinator model: the highest available Fable." "$OUT"
+vcfg() { printf '%s' "$1" > "$TMP/vc/middle-management.json"; CLAUDE_CONFIG_DIR="$TMP/vc" bash "$P/scripts/config-check.sh" validate >/dev/null 2>&1; echo $?; }
+mkdir -p "$TMP/vc"
+is "config-check: a string is valid" "$(vcfg '{"coordinatorModelRule":"the highest Fable"}')" 0
+is "config-check: blank is valid" "$(vcfg '{"coordinatorModelRule":""}')" 0
+is "config-check: a number is rejected" "$(vcfg '{"coordinatorModelRule":5}')" 1
+
+echo "== I: handoverTokens hand-over line =="
+H=$(new_home); as_s "$H" ho "$H" claim >/dev/null; me "$H" ho "$H"
+tx() {  # <tokens>: a fake transcript whose last usage line sums to <tokens>
+  printf '{"type":"user","message":{"content":"hi"}}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' "$(($1 - 1))" > "$TMP/tx.jsonl"; }
+hrole() {  # <sessionId> <transcript> [T3 home or ""]
+  printf '{"session_id":"%s","transcript_path":"%s"}' "$1" "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="${3-$H/.t3}" bash "$ROLE" 2>&1; }
+tx 299000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+lacks "below the mark (default 300k) -> no hand-over line" "CONTEXT" "$OUT"
+has "...the banner is unchanged" "Session role: ORCHESTRATOR" "$OUT"
+tx 412000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+is "past the mark, T3 -> the FIRST line says hand over now" "$(head -1 <<<"$OUT")" \
+  "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>."
+lacks "...below 2x: no 'start nothing else'" "Start nothing else first." "$OUT"
+has "...the rest of the banner follows" "Session role: ORCHESTRATOR" "$OUT"
+OUT=$(hrole sess-ho "$TMP/tx.jsonl" ""); L1=$(head -1 <<<"$OUT")
+has "past the mark, outside T3 -> the plain handover path" "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — ask your user for a fresh session" "$L1"
+lacks "...no t3-handover outside T3" "t3-handover" "$L1"
+tx 600000; OUT=$(hrole sess-ho "$TMP/tx.jsonl")
+has "at 2x the mark -> 'Start nothing else first.' on the first line" "Start nothing else first." "$(head -1 <<<"$OUT")"
+live "$H" w9 "$H" >/dev/null; lacks "a worker never gets the line" "CONTEXT" "$(hrole sess-w9 "$TMP/tx.jsonl")"
+lacks "no transcript file -> no line" "CONTEXT" "$(hrole sess-ho "$TMP/none.jsonl")"
+printf 'not json\n{"type":"assistant","message":{"usage":{"input_tokens":0}}}\n' > "$TMP/bad.jsonl"
+OUT=$(hrole sess-ho "$TMP/bad.jsonl"); lacks "unreadable transcript (no usage figure) -> no line" "CONTEXT" "$OUT"
+has "...and the banner still prints" "Session role: ORCHESTRATOR" "$OUT"
+lacks "no transcript_path in the input -> no line" "CONTEXT" "$(printf '{"session_id":"sess-ho"}' | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="$H/.t3" bash "$ROLE" 2>&1)"
+printf '{"handoverTokens":0}\n' > "$H/.claude/middle-management.json"
+lacks "handoverTokens 0 -> off" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverTokens":100000}\n' > "$H/.claude/middle-management.json"; tx 150000
+has "handoverTokens 100000 -> its mark" "CONTEXT 150k tokens, past the hand-over mark of 100k" "$(hrole sess-ho "$TMP/tx.jsonl")"
+rm -f "$H/.claude/sessions/$$.json"
+is "config-check: handoverTokens number is valid" "$(vcfg '{"handoverTokens":300000}')" 0
+is "config-check: handoverTokens 0 is valid" "$(vcfg '{"handoverTokens":0}')" 0
+is "config-check: handoverTokens string is rejected" "$(vcfg '{"handoverTokens":"300k"}')" 1
+is "config-check: handoverTokens negative is rejected" "$(vcfg '{"handoverTokens":-1}')" 1
 
 echo "== Z =="
 lacks "no webhook secret in any output" "$S1" "$ALL"; lacks "...nor the second" "$S2" "$ALL"

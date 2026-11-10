@@ -5,7 +5,8 @@
 # scripts/config-check.sh; runs scripts/open-items.py count in the coordinator branch. Reads the
 # T3 sidecar <marker dir>/orchestrator.t3.json (written by scripts/orchestrator.sh t3-bind) for the
 # T3 lines; never its reportUrl. Reads the config key quietReports.enabled (README "Quiet reports")
-# for the coordinator's report line.
+# for the coordinator's report line, and handoverTokens for its hand-over line (runs
+# scripts/peer-state.py --ctx on the hook input's transcript_path).
 #
 # Exactly ONE session coordinates, every other session is a worker. Two sources for
 # "who coordinates", in this order:
@@ -64,7 +65,9 @@ elif [ "$CFG_STATE" -eq 0 ]; then
       done
 fi
 # --- role detection ---------------------------------------------------------------
-MY_ID=$(jq -r '.session_id // ""')
+# Stdin is read once: the sessionId, and the transcript for the coordinator's hand-over line.
+{ read -r MY_ID; read -r MY_TP; } < <(jq -r '.session_id // "", .transcript_path // ""' 2>/dev/null)
+MY_ID=${MY_ID:-}; MY_TP=${MY_TP:-}
 
 # cwd<TAB>name<TAB>sessionId of every living interactive session. The (possibly empty) name comes
 # LAST in the jq array: `read` with a tab IFS collapses empty fields, so a nameless session would
@@ -140,6 +143,20 @@ MY_NAME=$(name_of "$MY_ID")
 # Marker route: identity by sessionId. Name route: by name, but never an empty one.
 if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
    || { [ "$ORCH_SRC" = name ] && [ -n "$MY_NAME" ] && [ "$MY_NAME" = "$ORCH" ]; }; then
+  # Hand-over line (config handoverTokens, default 300000, 0 = off): the FIRST line of this branch.
+  # Fail soft: no transcript, no figure, a non-number key = no line, never a broken banner.
+  HT=$(jq -r '(.handoverTokens // 300000) | numbers | floor' "$CFG_FILE" 2>/dev/null) || HT=300000
+  if [ "${HT:-0}" -gt 0 ] && [ -n "$MY_TP" ] \
+     && CTX=$(python3 "$PLUGIN_ROOT/scripts/peer-state.py" --ctx "$MY_TP" 2>/dev/null) \
+     && [[ "$CTX" =~ ^[0-9]+$ ]] && [ "$CTX" -ge "$HT" ]; then
+    if [ -n "${T3CODE_HOME:-}" ]; then
+      HOW='launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>.'
+    else
+      HOW='ask your user for a fresh session, send it the path to your handoff doc, release the seat; it claims (middle-management skill, handover).'
+    fi
+    printf 'CONTEXT %dk tokens, past the hand-over mark of %dk: hand over now — %s%s\n' \
+      $((CTX / 1000)) $((HT / 1000)) "$HOW" "$([ "$CTX" -ge $((2 * HT)) ] && echo ' Start nothing else first.')"
+  fi
   printf 'Session role: ORCHESTRATOR%s ("%s", by %s). You plan with your user and route the work —\n' \
     "$OF" "${MY_NAME:-unnamed}" "$([ "$ORCH_SRC" = marker ] && echo marker || echo name)"
   printf 'you do NOT build yourself. Directly allowed: planning/decision docs, chat/GitHub coordination,\n'
@@ -167,8 +184,8 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
         printf 'themselves as turns of this thread (their Stop hook). Task or ask a worker with t3_thread_send <its thread id>\n'
       fi
       printf '(that wakes it, also after settle); never peer-message or poke a T3 thread, and do not t3_thread_wait after\n'
-      printf 't3_thread_send: the answer comes by itself. After a model or effort change: update_scheduled_task on the\n'
-      printf 'report task (or claim + t3-bind again), else the report turns keep the old model. Handover: launch the\n'
+      printf 't3_thread_send: the answer comes by itself. After a model or effort change: a NEW report task from this\n'
+      printf 'thread, t3-bind it, delete_scheduled_task the old one (a re-save keeps the old model). Handover: launch the\n'
       printf 'successor thread, then orchestrator.sh t3-handover --to-thread <id> --to-title <t>; keep seat and report task\n'
       printf 'until it claims. Once a wake "seat taken over by ..." arrives you are a worker: forward every report that\n'
       printf 'still reaches you to the successor with t3_thread_send, finish your wrap, delete your report task last.\n'
@@ -190,7 +207,12 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   printf 'silence from your user, and only for safe, reversible work). A wrapped session is closed for\n'
   printf 'good. After every wrap, run python3 "%s/scripts/peer-state.py" --wrapped%s and hand\n' "$PLUGIN_ROOT" "$PS_SCOPE"
   printf 'your user the tab list it prints: topic, idle age and the last line each session wrote — the\n'
-  printf 'text at the bottom of that tab, which is how your user finds it. NEVER peer-message a session\n'
+  if [ -n "${T3CODE_HOME:-}" ]; then
+    printf 'text at the bottom of that tab, which is how your user finds it (in T3: run the settle check,\n'
+    printf 'morning-ritual step 3, and settle instead). NEVER peer-message a session\n'
+  else
+    printf 'text at the bottom of that tab, which is how your user finds it. NEVER peer-message a session\n'
+  fi
   printf 'that reads as wrapped, and read state off disk before messaging one idle a while: the message\n'
   printf 'makes that session re-pay its ENTIRE context in fresh input tokens.\n'
   printf 'The same reader with --waiting%s lists sessions WAITING on their user: "permission" = MAY be parked\n' "$PS_SCOPE"
