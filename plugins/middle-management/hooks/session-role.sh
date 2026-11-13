@@ -189,6 +189,11 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   printf 'Stopping a lane unit and removing its merged, clean, pushed worktree is housekeeping, not\n'
   printf 'destruction — done unasked; anything dirty, unpushed or unmerged stays and goes to your user.\n'
   if [ -n "${T3CODE_HOME:-}" ]; then
+    printf 'A lane that reports done and wrapped: settle its thread and its sub-agent threads in the same turn\n'
+    printf '(t3_thread_organize settle, or t3-settle.py: morning-ritual step 3), after checking it left nothing\n'
+    printf 'loose. Sweep for finished, unsettled threads when you take the seat, after every wrap and before you hand over.\n'
+  fi
+  if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
       printf 'T3 Code: your seat is bound to %s, report task %s. Worker reports arrive by\n' "$T3T" "$(side '.reportTaskId // "?"')"
       # the same test as hooks/t3-report.sh and scripts/t3-watch.py: an otherwise invalid config switches it too

@@ -243,6 +243,10 @@ stale watchers go as soon as their reason is gone (merge, answered thread, close
 — not when memory runs low (one leftover worktree once held 4.5 GB). Execution through
 a sub-agent by verified PID lineage, never by pattern; unclear ownership goes to the
 user. Procedure: `morning-ritual` skill, step 5.
+Under T3 Code: a lane that reports done and wrapped: settle its thread and its sub-agent threads
+in the same turn (`t3_thread_organize settle`, or `t3-settle.py` for another thread's children;
+the settle check is `morning-ritual` step 3), after checking it left nothing loose. Sweep for
+finished, unsettled threads when you take the seat, after every wrap and before you hand over.
 
 **Where the line runs.** Stopping a lane's unit and removing its worktree is housekeeping once
 the worktree is clean, every commit sits on the remote or in the base, and the work is merged —
@@ -480,8 +484,8 @@ and then only for safe, reversible work: a second lane in a session that already
 sub-agents in your own.
 
 **A wrapped session is closed for good.** Under T3 Code a worker's wrap report is your cue to
-run the settle check and settle that thread in your own turn, right when the report arrives, not
-next morning (`middle-management:morning-ritual` step 3, "T3 Code threads"). Outside T3 Code,
+settle it and its sub-agent threads in your own turn, right when the report arrives, not next
+morning ("Resource hygiene is yours"; the check: `middle-management:morning-ritual` step 3). Outside T3 Code,
 after every wrap, tell your user unprompted which tabs they can close — and read that list off
 disk instead of waking the sessions to ask:
 

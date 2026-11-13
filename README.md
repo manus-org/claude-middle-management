@@ -486,7 +486,10 @@ every thread, hooks included).
   `--dry-run` sends nothing, `--stats` counts posts per thread and day. State:
   `<config-dir>/state/t3-watch/`, `<config-dir>/state/t3-report/{failures.log,posts.tsv}`.
 - **Settle, not archive.** Settling is the coordinator's step: a worker settles nothing, its
-  wrap's closing lines mean "ready for the coordinator's settle". The coordinator checks each
+  wrap's closing lines mean "ready for the coordinator's settle". It settles at the event: in the
+  same turn a lane reports done and wrapped (its thread and its sub-agent threads), plus a sweep
+  for finished, unsettled threads when it takes the seat, after every wrap and before it hands
+  over. The coordinator checks each
   finished thread right before settling it (brief done, every open point on the board, no pending
   request or unbacked worktree; morning-ritual step 3), then settles its idle sub-agent children
   and the thread with `scripts/t3-settle.py` (`--children-of <id>` / `<id>...`, dry run unless
