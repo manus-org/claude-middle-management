@@ -388,6 +388,14 @@ is worth exactly as much as their word in the tab: a merge, a push, a deletion, 
 going outward. A loose "yes" with nothing to anchor it to is not: ask again, naming the one
 item, rather than guessing which of the three open asks they meant.
 
+**A decision card or decision page counts the same way for what your user writes on it.** An
+explicit written decision or go that they put on a card or page they answer through ("yes, push
+it") is worth their word in the tab: act on it, and book it verbatim with the card or page and
+the time. A bare option click, or a pre-ticked option sent back without a comment, is a choice
+between the options the card offered, not a go for an outward action (a merge, a push, a
+deletion, a message going outward); for that, ask for the explicit word. When the click and the
+comment disagree, say so on the card or page and wait instead of picking one.
+
 ## T3 Code mode
 
 When a session runs in a T3 Code thread (`T3CODE_HOME` is set), messages travel as T3 turns,
