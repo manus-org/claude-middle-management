@@ -721,7 +721,7 @@ Every 30 minutes it reads `/wt list` — its only input — and acts on three th
 that has run longer than `reaperMaxHours` (default 10) is stopped; a lane whose owning session
 has been gone for `reaperOwnerlessMinutes` (default 30), seen on two consecutive runs, is
 stopped; a lane with no unit, a clean tree, nothing unpushed and work that has landed in the
-base is removed with `/wt <name> done`, which deletes the branch and prints the tip SHA for
+base (an ancestor of it, or after a squash merge the same file content) is removed with `/wt <name> done`, which deletes the branch and prints the tip SHA for
 the way back. Everything else it **lists** with its reason and leaves alone: dirty trees,
 unpushed commits, pull requests that are open, closed or absent, a lane somebody is working
 inside, an unknown owner. A valid `/wt <name> hold <topic> <hours>` beats every rule. It never

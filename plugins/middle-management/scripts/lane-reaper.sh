@@ -16,7 +16,8 @@
 #              `-` or an unknown one is never treated as gone.
 #                                                        -> wt <name> stop <topic>
 #   merged     no unit running, the tree is clean, nothing is unpushed, and the branch is either
-#              an ancestor of the base or its pull request is MERGED
+#              merged by `wt list` (an ancestor of the base, or squash-merged: its changed files
+#              have the same content on the base) or its pull request is MERGED
 #                                                        -> wt <name> done <topic>
 #   list only  everything else: dirty trees, unpushed commits, open/closed/absent pull requests,
 #              an unknown pr state — listed with the reason, never touched
@@ -27,8 +28,9 @@
 # It never kills a process by pid and never deletes a ref; `wt done` deletes the branch of merged
 # work itself, and the tip SHA it prints is carried into the listing.
 #
-# Squash merges: such a branch is no ancestor of its base, so without `gh` (pr column `-`) the
-# lane is listed rather than removed. That is the safe half of the trade.
+# Squash merges: such a branch is no ancestor of its base; `wt list` compares content instead and
+# reads it `merged yes`, `gh` not needed. If the base changed those files again after the merge,
+# the lane reads unpushed and is listed rather than removed. That is the safe half of the trade.
 #
 # Output: <config dir>/state/wt/reaper-latest.md, the run before it rotated to
 # reaper-previous.md. The configured notifyCommand is called when a lane was stopped, removed or

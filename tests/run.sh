@@ -912,6 +912,45 @@ git -C "$W/app" fetch -q origin
 ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app landed ' || true)"
 assert_has "a pushed lane whose work landed in the base reads merged" " clean yes " "$ROW"
 HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done landed >/dev/null 2>&1
+# squash merge: the lane's commit is no ancestor of the base and its upstream lacks HEAD, but
+# every file it changed has the same content on the base -> merged, never unpushed
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app new squashed >/dev/null 2>&1
+SQ="$W/.worktrees-app/squashed"
+printf 'sq\n' > "$SQ/sq.txt"; printf 'gone\n' > "$SQ/old.txt"
+git -C "$SQ" add sq.txt old.txt && git -C "$SQ" -c user.email=t@t -c user.name=t commit -q -m sq1
+git -C "$SQ" rm -q old.txt && git -C "$SQ" -c user.email=t@t -c user.name=t commit -q -m sq2
+SQC=$(git -C "$SQ" -c user.email=t@t -c user.name=t commit-tree "$(git -C "$SQ" rev-parse 'HEAD^{tree}')" -p origin/dev -m 'squash (#1)')
+git -C "$SQ" push -q origin "$SQC:refs/heads/dev" 2>/dev/null; git -C "$W/app" fetch -q origin
+git -C "$SQ" merge-base --is-ancestor HEAD origin/dev && bad "fixture: the squash lane is no ancestor of the base" || ok "fixture: the squash lane is no ancestor of the base"
+ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app squashed ' || true)"
+assert_has "a squash-merged lane (content on the base) reads clean and merged, not unpushed" " clean yes " "$ROW"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" MM_WT="$WT" MM_REAPER_NO_NOTIFY=1 bash "$P/scripts/lane-reaper.sh" --dry-run 2>&1)"
+assert_has "the reaper would remove the squash-merged lane" "merged: app-squashed" "$OUT"
+printf 'x' > "$SQ/dirt.txt"
+ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app squashed ' || true)"
+assert_has "a squash-merged lane with a dirty tree still reads dirty" " dirty yes " "$ROW"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done squashed 2>&1)"; RC=$?
+assert_rc "wt done on a dirty squash-merged lane -> refused" 1 "$RC"
+mv "$SQ/dirt.txt" "$W/dirt-moved.txt"
+# a second lane whose file the base changed again after the squash: content differs -> unpushed
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app new resquash >/dev/null 2>&1
+RQ="$W/.worktrees-app/resquash"
+printf 'v1\n' > "$RQ/rq.txt"; git -C "$RQ" add rq.txt && git -C "$RQ" -c user.email=t@t -c user.name=t commit -q -m rq
+RQC=$(git -C "$RQ" -c user.email=t@t -c user.name=t commit-tree "$(git -C "$RQ" rev-parse 'HEAD^{tree}')" -p origin/dev -m 'squash (#2)')
+RQT=$(printf 'v2\n' | git -C "$RQ" hash-object -w --stdin)
+RQTREE=$(git -C "$RQ" ls-tree "$RQC" | sed "s/[0-9a-f]\{40\}\trq.txt\$/$RQT\trq.txt/" | git -C "$RQ" mktree)
+RQC2=$(git -C "$RQ" -c user.email=t@t -c user.name=t commit-tree "$RQTREE" -p "$RQC" -m 'later edit')
+git -C "$RQ" push -q origin "$RQC2:refs/heads/dev" 2>/dev/null; git -C "$W/app" fetch -q origin
+ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app resquash ' || true)"
+assert_has "base changed the lane's file again after the squash -> unpushed, not merged (safe side)" " unpushed no " "$ROW"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done resquash 2>&1)"; RC=$?
+assert_rc "...and wt done refuses it" 1 "$RC"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done squashed 2>&1)"; RC=$?
+assert_rc "wt done on a clean squash-merged lane succeeds" 0 "$RC"
+assert_has "...and deletes its branch as merged" "branch squashed deleted" "$OUT"
+git -C "$RQ" -c user.email=t@t -c user.name=t commit -q --allow-empty -m keep
+git -C "$RQ" push -q -u origin resquash 2>/dev/null
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done resquash >/dev/null 2>&1
 # run: refused without a systemd user manager, and refused without a command
 NOSD="$(mktemp -d -p "$TMPBASE")"; ln -s /usr/bin/* /bin/* "$NOSD"/ 2>/dev/null
 rm -f "$NOSD/systemctl" "$NOSD/systemd-run"

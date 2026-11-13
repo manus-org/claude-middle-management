@@ -21,7 +21,7 @@
 #                              does not count as ownerless when the session that started it ends
 #   wt <name> done <topic>     stop the unit and remove the worktree — refuses while it is
 #                              dirty, unpushed or a live process sits in it — and delete the
-#                              branch once it is merged into <base>
+#                              branch once it is merged into <base> (squash merges by content)
 #
 # Usage — machine-wide:
 #   wt list                    every configured checkout in one view
@@ -34,16 +34,18 @@
 #   unit    the lane's unit while it is active · owner the session that started it
 #   alive   yes|no|-  (the owner session's pid, kill -0) · started ISO minute · mem MiB
 #   hold    ISO minute the hold expires
-#   state   clean|dirty|unpushed  (unpushed = commits neither on <base> nor on the upstream)
+#   state   clean|dirty|unpushed  (unpushed = commits neither on <base> nor on the upstream;
+#           a lane whose work landed on <base>, see merged, is never unpushed)
 #   merged  yes|no  — HEAD is an ancestor of <base> AND the lane tracks a branch of its own AND
-#           it has moved since it was created, so a brand-new lane reads `no`
+#           it has moved since it was created, so a brand-new lane reads `no`; OR the lane was
+#           squash-merged: every file it changed since its merge-base has the same content on <base>
 #   pr      OPEN|MERGED|CLOSED|none|error, or `-` when there is no pull-request information to
 #           be had (no gh, no GitHub remote, gh never logged in). `error` — gh was supposed to
 #           answer and failed — is never quietly `none`, and the reaper alarms about it.
 # Only worktrees that sit directly in the checkout's worktreeDir are lanes; other worktrees git
 # knows about are left out, because `run`, `stop`, `hold` and `done` address a lane by its
-# directory name. A lane whose branch was squash-merged reads `merged no` — the `pr` column is
-# what catches it, so without gh such a lane is listed rather than cleaned up.
+# directory name. A squash-merged lane is found by content (merged yes); one whose files the base
+# changed again after the merge reads `merged no` and `unpushed`, and is listed, not cleaned up.
 #
 # Exit codes: 0 ok · 1 usage or refusal · 3 something else holds it (the unit is already up,
 # maxUnits units are running, or a live process sits in the worktree `done` should remove — the
@@ -181,6 +183,19 @@ cwd_blockers() {  # $1 = worktree path -> pids OUTSIDE wt's own process tree wit
   done
 }
 
+landed() {  # $1 worktree, $2 base -> 0 when the lane's work is on <base> by CONTENT
+  # A squash merge leaves the lane's commits off the base's history, so ancestry proves nothing
+  # there. Compare content instead: every file the lane changed since its merge-base has the same
+  # content on <base> (a deleted file is absent there too). No change at all is not "landed":
+  # that is a brand-new lane, which the ancestry rules below already handle. A file the base
+  # changed again after the merge reads "not landed", the safe side: listed, never removed.
+  local mb files=()
+  mb=$(git -C "$1" merge-base HEAD "$2" 2>/dev/null) || return 1
+  mapfile -d '' files < <(git -C "$1" diff -z --no-renames --name-only "$mb" HEAD 2>/dev/null)
+  [ ${#files[@]} -gt 0 ] || return 1
+  git -C "$1" --literal-pathspecs diff --quiet "$2" HEAD -- "${files[@]}" 2>/dev/null
+}
+
 pr_state() {  # $1 repo root, $2 branch -> OPEN|MERGED|CLOSED|none|error|-
   local out
   [ -n "$2" ] || { echo -; return; }
@@ -241,6 +256,8 @@ list_one() {  # $1 = checkout name
       moves=$(printf '%s' "$moves" | grep -c . || true)
       if [ -n "$up" ] && [ "$up" != "$basefull" ] && [ "${moves:-0}" -gt 1 ]; then merged=yes; fi
     fi
+    # squash-merged: not an ancestor, but every file it changed is on the base with that content
+    if [ "$merged" = no ] && [ -n "$base" ] && landed "$wt" "$base"; then merged=yes; fi
     if [ "$state" = clean ] && [ "$merged" = no ]; then
       # unpushed = there is no upstream, or it does not contain HEAD. No pipe: `| head` under
       # pipefail kills git on a long log and the test would never run.
@@ -425,8 +442,8 @@ case "$CMD" in
     [ -z "$(git -C "$DEST" status --porcelain)" ] || die "$DEST has uncommitted changes — commit, stash or clean up first"
     # refuse to drop commits that exist nowhere else
     MERGED=""
-    if git -C "$DEST" merge-base --is-ancestor HEAD "$BASE" 2>/dev/null; then
-      MERGED=1
+    if git -C "$DEST" merge-base --is-ancestor HEAD "$BASE" 2>/dev/null || landed "$DEST" "$BASE"; then
+      MERGED=1   # an ancestor, or squash-merged: its content is on the base (see landed)
     else
       git -C "$DEST" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1 \
         && [ -z "$(git -C "$DEST" log '@{upstream}..HEAD' --oneline)" ] \

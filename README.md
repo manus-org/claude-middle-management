@@ -93,7 +93,7 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 | Session roles | UserPromptSubmit hook | Tells every session, on every message, whether it is the ORCHESTRATOR or a WORKER — including the operative rules for that role. Silent when no coordinator exists. |
 | `/orchestrator claim\|release\|status` | command | Appoints this session as coordinator (marker file), hands the seat back, or shows who holds it. |
 | Worktree guard | PreToolUse hook | Denies direct edits inside configured main checkouts and points to the worktree workflow instead. Dormant until you configure repos. |
-| `/wt <name> new\|list\|run\|stop\|hold\|done` | command | Creates/lists/removes per-topic worktrees with the branch based on your configured base branch, deps installed. `done` refuses while the worktree is dirty, unpushed or any live process sits inside it, and deletes the branch (via `update-ref`, recording the tip) once it is merged into the base — a squash-merged branch is kept, since it is no ancestor of the base. |
+| `/wt <name> new\|list\|run\|stop\|hold\|done` | command | Creates/lists/removes per-topic worktrees with the branch based on your configured base branch, deps installed. `done` refuses while the worktree is dirty, unpushed or any live process sits inside it, and deletes the branch (via `update-ref`, recording the tip) once it is merged into the base. A squash-merged branch counts as merged when every file it changed has the same content on the base (ancestry proves nothing there); if the base changed those files again afterwards it reads unpushed and is kept. |
 | `/wt <name> run\|stop <topic>`, `/wt cap` | command (Linux) | Starts the lane's dev server as a memory-capped systemd user unit `wt-<name>-<topic>` and stops it again, waiting for the cgroup to be empty rather than believing "inactive"; `cap` caps one heavy build or test run in the foreground. At most `maxUnits` lane units at a time. |
 | `/wt <name> hold\|chown <topic>`, `/wt list` | command | `hold` keeps the reaper off a lane that has to stay up; `chown` hands a lane to another session so it does not go ownerless. `list` is the one view: one parseable row per lane with its unit, owner, uptime, memory, hold, git state and pull-request state. |
 | Long-runners as units | PreToolUse hook (optional, Linux) | Rewrites a hand-started `next dev`, `vite`, `<pm> run dev` into `wt run`, and `bun test`, `next build`, `playwright test`, `<pm> run build` into `wt cap`; refuses a dev server inside a compound command with the line to copy. Off unless `longRunningAsUnit: true`. |
@@ -868,10 +868,10 @@ plugin never degrades silently. While the config is invalid, the worktree guard 
 - The lane reaper decides from `wt list` alone. The `pr` column reads `-` whenever there is no
   pull-request information to be had (no `gh`, no GitHub remote, `gh` never logged in), and
   only a gh that was supposed to answer and failed reads `error`, which alarms. Without that
-  column only lanes whose branch is an ancestor of the base are cleaned up, and squash-merged
-  ones are listed instead — the safe half of that trade. Such a branch then keeps its ref for
-  good: once the worktree is gone the lane is never listed again, so delete it yourself with
-  the `update-ref` line `/wt … done` printed. The reaper never kills a process by pid, and its
+  column a lane is cleaned up when its branch is an ancestor of the base or, after a squash
+  merge, every file it changed has the same content on the base. A squash-merged lane whose
+  files the base changed again afterwards reads unpushed and is listed instead — the safe half
+  of that trade; remove it yourself once you have checked nothing is lost. The reaper never kills a process by pid, and its
   units point at a COPY under `<config-dir>/middle-management-reaper/`, which the refresh hook
   renews after a plugin update.
 - **There is no idle rule.** Deciding that a lane is idle means reading request lines out of
