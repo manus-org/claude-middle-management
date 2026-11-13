@@ -4,7 +4,8 @@
 #   bash tests/t3-seat.sh
 #   A  orchestrator.sh t3-bind / status / t3-handover / handover claim / takeover wake / previous / release
 #   B  the asleep guard: claim and release <id> refuse, --t3-asleep-ok overrides
-#   C  session-role.sh: asleep T3 coordinator, T3 worker lines, T3 coordinator lines, former coordinator
+#   C  session-role.sh: asleep T3 coordinator, T3 worker lines, T3 coordinator lines, the short hints
+#      on a second message, former coordinator
 #   D  scopeMode per-root: two roots, no catch-all, a standalone session
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
@@ -141,6 +142,11 @@ has "...the command shape incl. --waits-on" 'scripts/topics.py" entry --status <
 has "...a lane's first entry needs no --new" "the first entry creates it" "$OUT"
 has "...T3 worktree is not removed" "belongs to T3: never /wt done" "$OUT"
 lacks "...not stale" "not visibly alive" "$OUT"; lacks "...no release hint" "release sess-c1" "$OUT"
+OUT=$(role "$H" sess-w1); ALL="$ALL$OUT"
+lacks "second message of the T3 worker -> the short hint" "Book every READY" "$OUT"
+has "...report channel and Keepalive in one line" 'Your report = the last text of your turn (the Stop hook delivers it); never SendMessage or poke a T3 coordinator, never message other workers. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.' "$OUT"
+has "...names the asleep coordinator" 'The coordinator is asleep in T3 thread "coord one" (mcp:t-c1)' "$OUT"
+is "...at most five lines" "$(( $(printf '%s\n' "$OUT" | grep -c .) <= 5 ))" 1
 OUT=$(role "$H" sess-w1 ""); has "a non-T3 worker -> report through t3-wake.sh" "scripts/t3-wake.sh\" \"w1\"" "$OUT"
 lacks "...no T3 worktree line" "belongs to T3" "$OUT"
 lacks "...no topics.py line (outside T3 the banner is unchanged)" "topics.py" "$OUT"
@@ -172,6 +178,12 @@ has "...quiet mode on: the quiet reports line" 'Worker reports may arrive inside
 has "...handled in the turn, no reply per report" "do not open a chat reply per report" "$OUT"
 lacks "...not the every-report-is-a-turn line" "as turns of this thread" "$OUT"
 has "...the rest of the line stays" "Task or ask a worker with t3_thread_send <its thread id>" "$OUT"
+OUT=$(role "$H" sess-c1); ALL="$ALL$OUT"
+lacks "second message of the T3 coordinator -> the short hint" "RE-WAKE checklist" "$OUT"
+has "...the event duties in one line, settle included" "At events: a lane reports done and wrapped → settle it and its sub-agent threads; a lane's pull request is merged → clean up its lane in the same turn; a task starts → check your tokens." "$OUT"
+has "...the seat binding, quiet mode, Keepalive" 'T3 Code: your seat is bound to T3 thread "coord one" (mcp:t-c1), report task task-1; worker reports arrive by themselves (quiet mode). A message that is exactly "Keepalive": answer exactly "OK"' "$OUT"
+has "...where the full rules are" "Full rules: skill middle-management:middle-management" "$OUT"
+is "...at most five lines plus the worker list" "$(( $(printf '%s\n' "$OUT" | grep -vc '^Current workers') <= 5 ))" 1
 rm -f "$H/.claude/middle-management.json"
 OUT=$(role "$H" sess-c1 ""); lacks "a coordinator outside T3 gets no T3 lines" "T3 Code" "$OUT"
 lacks "...no settle sentence outside T3" "unsettled threads" "$OUT"

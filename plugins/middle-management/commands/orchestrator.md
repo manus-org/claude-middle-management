@@ -25,7 +25,7 @@ the marker that decides which one.
    the scope the command acted on; relay it.
 
 3. Add one sentence of context only where it helps:
-   - after a successful `claim`: the role banner switches with the next message in every
+   - after a successful `claim`: the role banner switches (printed in full once) with the next message in every
      session of its scope (with a `scopes` key; README, "Scopes"), otherwise in every session
      on this machine.
    - on `BUSY` / `REFUSED`: say which session holds the seat and that only that session

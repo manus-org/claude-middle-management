@@ -256,11 +256,62 @@ assert_has "the worker gets the same instruction, keyed by its own id" "- Sessio
 assert_has "the worker is pointed at the same skill" "(middle-management:wrap)" "$OUT"
 rm -f "$H/logs/session-log.md"
 printf '{"sessionLog":"%s/elsewhere/log.md"}' "$H" > "$H/.claude/middle-management.json"
+rm -f "$H/.claude/state/session-role/sess-alpha"   # same full text as two calls up: force it again
 OUT="$(role "$H" "sess-alpha")"
 assert_has "a configured path that does not exist yet still gets the instruction" "- Session: closed · sess-alpha" "$OUT"
 assert_lacks "a chosen path is never reported as missing" "No session log yet" "$OUT"
 assert_lacks "sessionLog does not make the config invalid" "is invalid" "$OUT"
 rm -f "$H/.claude/middle-management.json"
+kill "$PEER" 2>/dev/null
+
+say "== full text once per session and role, a short hint after (0.19.0) =="
+H="$(new_home)"; mkdir -p "$H/logs"; : > "$H/logs/session-log.md"; PEER="$(add_peer "$H")"
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$ORCH" claim >/dev/null 2>&1
+ST="$H/.claude/state/session-role"
+OUT="$(role "$H" sess-alpha)"
+assert_has "(a) first message -> the full coordinator text" "RE-WAKE checklist" "$OUT"
+assert_has "...with its tail" "Close this tab." "$OUT"
+[ -s "$ST/sess-alpha" ] && ok "...and a stamp for this session" || bad "...and a stamp for this session" "$(ls -la "$ST" 2>&1)"
+OUT="$(role "$H" sess-alpha)"
+assert_lacks "(b) second message -> not the full text" "RE-WAKE checklist" "$OUT"
+assert_has "...the role line" 'Session role: ORCHESTRATOR ("alpha", by marker). You plan with your user and route the work; you do not build' "$OUT"
+assert_has "...the event duties in one line" "At events: a lane's pull request is merged → clean up its lane in the same turn; a task starts → check your tokens." "$OUT"
+assert_lacks "...no settle duty outside T3" "settle" "$OUT"
+assert_has "...where the full rules are" "Full rules: skill middle-management:middle-management" "$OUT"
+assert_has "...the write-now habit" "$P/scripts/open-items.py\" add." "$OUT"
+assert_has "...the dynamic worker list stays" "Current workers: beta" "$OUT"
+assert_lacks "...no closed-marker line" "Session: closed" "$OUT"
+N=$(printf '%s\n' "$OUT" | grep -c .); [ "$N" -le 5 ] && ok "...at most five lines ($N)" || bad "...at most five lines" "$OUT"
+OUT="$(role "$H" sess-beta)"
+assert_has "(a) a worker's first message -> the full worker text" "resources released" "$OUT"
+OUT="$(role "$H" sess-beta)"
+assert_lacks "(b) its second -> the short hint" "resources released" "$OUT"
+assert_has "...the role line" 'Session role: WORKER ("beta"). The coordinator is "alpha".' "$OUT"
+assert_has "...the report channel" 'Peer messages go ONLY to "alpha", never to other workers' "$OUT"
+assert_has "...the sub-orchestrator line" "SUB-ORCHESTRATOR of your lane" "$OUT"
+N=$(printf '%s\n' "$OUT" | grep -c .); [ "$N" -le 5 ] && ok "...at most five lines ($N)" || bad "...at most five lines" "$OUT"
+printf 'sess-beta\n' > "$H/.claude/state/orchestrator"   # the seat moves: both roles change
+OUT="$(role "$H" sess-beta)"
+assert_has "(c) role change -> the new coordinator gets the full text" "RE-WAKE checklist" "$OUT"
+OUT="$(role "$H" sess-alpha)"
+assert_has "...and the former one the full worker text" "resources released" "$OUT"
+assert_has "...then short again" "Full rules: skill" "$(role "$H" sess-alpha)"
+OUT="$(printf '{"session_id":"sess-alpha","source":"compact"}' | HOME="$H" CLAUDE_CONFIG_DIR="" bash "$ROLE" 2>&1)"
+assert_has "(c) SessionStart after a compaction -> the full text" "resources released" "$OUT"
+assert_has "...short on the next message" "Full rules: skill" "$(role "$H" sess-alpha)"
+jq -e '.hooks.SessionStart[] | select(.matcher == "compact|clear") | .hooks[] | select(.command | endswith("hooks/session-role.sh\""))' "$P/hooks/hooks.json" >/dev/null \
+  && ok "...registered in hooks.json for compact|clear" || bad "...registered in hooks.json for compact|clear"
+printf '{"board":"%s/board.md"}' "$H" > "$H/.claude/middle-management.json"
+assert_has "a config change that rewrites the text -> full again" "sole writer of the board" "$(role "$H" sess-beta)"
+rm -f "$H/.claude/middle-management.json"
+rm -rf "$ST"; : > "$ST"   # (d) the stamp dir cannot be created
+role "$H" sess-alpha >/dev/null
+assert_has "(d) stamp not writable -> full text every time" "resources released" "$(role "$H" sess-alpha)"
+rm -f "$ST"
+OUT="$(printf '{"session_id":"../escape"}' | HOME="$H" CLAUDE_CONFIG_DIR="" bash "$ROLE" 2>&1)"
+[ ! -e "$H/.claude/state/escape" ] && [ ! -e "$ST/../escape" ] && ok "(d) a session id that is no plain name writes no stamp" || bad "(d) a session id that is no plain name writes no stamp"
+role "$H" sess-alpha >/dev/null
+assert_has "(d) MM_ROLE_FULL=1 -> the full text" "resources released" "$(printf '{"session_id":"sess-alpha"}' | HOME="$H" CLAUDE_CONFIG_DIR="" MM_ROLE_FULL=1 bash "$ROLE" 2>&1)"
 kill "$PEER" 2>/dev/null
 
 say "== the open-items drop in the banner =="
@@ -1322,8 +1373,8 @@ sys.stdout.write(s)' \
   assert_has "S0 ...a full worker banner was compared" 'Session role: WORKER ("beta")' "$new"
   golden "nameless worker" sess-nameless
   [ "$(ostatus "$ORCH")" = "$(ostatus "$OP/scripts/orchestrator.sh")" ] && ok "S0 status byte-identical: holder" || bad "S0 status byte-identical: holder"
-  [ "$(find "$H/.claude/state" | sort)" = "$(printf '%s\n' "$H/.claude/state" "$H/.claude/state/orchestrator")" ] \
-    && ok "S0 state dir holds the marker only" || bad "S0 state dir holds the marker only" "$(find "$H/.claude/state")"
+  [ "$(find "$H/.claude/state" -path "$H/.claude/state/session-role" -prune -o -print | sort)" = "$(printf '%s\n' "$H/.claude/state" "$H/.claude/state/orchestrator")" ] \
+    && ok "S0 state dir holds the marker (and the 0.19.0 role stamps) only" || bad "S0 state dir holds the marker (and the 0.19.0 role stamps) only" "$(find "$H/.claude/state")"
   kill "$G0B" "$G0G" "$G0N" 2>/dev/null
 else
   say "  skip- S0 golden diff: commit 8d41d58 is not in this clone"

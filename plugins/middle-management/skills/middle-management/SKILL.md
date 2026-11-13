@@ -10,9 +10,17 @@ Many Claude Code sessions run in parallel on one machine. So they do not message
 other crosswise and the user does not become the context courier between them, there is
 exactly ONE coordinator session; every other session is a worker.
 
-The operative contract is printed by the plugin's role hook on every user message — the
-WORKER and ORCHESTRATOR banners. This skill is the reference around it: how the seat is
-appointed and handed over, what breaks, and how to fix it.
+The operative contract is printed by the plugin's role hook — the WORKER and ORCHESTRATOR
+banners. It prints the full text at a session's first message, again when the text changes (a
+claim or a release switches the role, a plugin update or a config change rewrites it) and again
+after a compaction or `/clear` (a SessionStart hook); every other message gets a short hint of
+three to five lines: the role, where the seat is, the coordinator's event duties, the report
+channel, a pointer here, plus the lines whose content changes per message (the token line, the
+open-items count, the worker list). A stamp per session under `<config dir>/state/session-role/`
+remembers what was printed; when it cannot be read or written, or with `MM_ROLE_FULL=1` in the
+environment, every message gets the full text. This skill carries the same rules in full and is
+the reference around them: how the seat is appointed and handed over, what breaks, and how to
+fix it.
 
 ## Appointing a coordinator
 
@@ -158,7 +166,11 @@ the doc, never its content (peer messages are plain text, not files); under T3 C
 session that connects workers. You track who works on what and what is pending. You are
 the sole writer of the board. You do not build yourself: implementation goes to worker
 sessions, and small clear jobs (one-file fix, research, mechanical sweep) to a sub-agent
-in your own session. Your context stays lean.
+in your own session. Your context stays lean. Directly allowed: planning and decision docs,
+chat and issue-tracker coordination, tasking workers and sub-agents. Not yourself: product or
+repo code, git surgery in a repo, builds and tests. Where only your user can start a session and
+a package is clear AND uncritical and only waits for that session, do not wait for hours: run it
+through a sub-agent with the recommended option and record the decision.
 With scopes, your workers, board and cleanup are your scope's only; the coordinator of another
 scope is the one session outside it you may message directly.
 
@@ -213,7 +225,7 @@ recorded where you track lanes.
 
 **After every landing wave, check yourself before the next one.** In your own turn, no
 sub-agent: (1) re-read your team's lane rules and the head of the latest handover, because the
-banner keeps the plugin's rules in view but not the long project rules; (2) count the active
+banner keeps the plugin's rules in view (the short hint points at them) but not the long project rules; (2) count the active
 lanes against your cap (CUSTOMIZE; three to four on one shared subscription); (3) re-scan the
 package queue for items the landing just unblocked; (4) tell every lane whose base moved to
 rebase, but by message only when `peer-state.py` shows it live and idle under an hour; for any
@@ -418,12 +430,17 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
 - **Seat binding.** The coordinator claims, creates its report task (a webhook bound to its own
   thread) and runs `t3-bind` (`/orchestrator`, T3 branch). The sidecar
   `<marker dir>/orchestrator.t3.json` holds its thread id and the report URL, 0600; the URL is
-  never printed.
+  never printed. After a model or effort change the coordinator creates a NEW report task from
+  its thread, `t3-bind`s it and deletes the old one with `delete_scheduled_task` (a re-save keeps
+  the old model).
 - **Worker -> coordinator:** the last text of each worker turn, delivered by the Stop hook. Tools
   first, report last. "report NOT delivered" -> send it yourself with `t3_thread_send <coordinator thread>`.
   With `quietReports` on (README, "Quiet reports") only a READY / LIVE / blocked / question report
   wakes the coordinator, as one digest; everything else reaches it inside its own turn as "Worker
   reports (quiet)": the coordinator handles those in the turn it is in, never a chat reply per report.
+  A worker outside T3 Code whose coordinator sits in a T3 thread reports with
+  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/t3-wake.sh" "<its name>" <file with the report>` (exit 0 =
+  delivered); a peer message is not the report channel to a T3 thread.
 - **Coordinator -> worker:** tasking, questions and handover by `t3_thread_send <threadId>`
   (it wakes a sleeping or settled thread). No `t3_thread_wait` afterwards: the answer arrives by
   itself. No poke, no keep-warm, no peer message into a T3 thread.
@@ -558,7 +575,9 @@ Then it sends that session the PATH to the handoff doc by peer message. The outg
 coordinator releases the seat, the new one claims it. Under T3 Code the outgoing coordinator
 launches the successor's thread, sends it the path with `t3_thread_send`, runs
 `orchestrator.sh t3-handover --to-thread <id> --to-title <title>` and keeps seat and report task
-until the successor has claimed (`/orchestrator`, T3 branch). **Check your tokens when a task starts, not in the middle of one: that is the moment you can
+until the successor has claimed (`/orchestrator`, T3 branch). Once the wake "seat taken over by
+..." arrives it is a worker: it forwards every report that still reaches it to the successor with
+`t3_thread_send`, finishes its wrap and deletes its old report task as the last step. **Check your tokens when a task starts, not in the middle of one: that is the moment you can
 still choose. Prepare the handoff from the warn mark on.** The role banner gives the figure on
 every message except a bare `Keepalive`. From `handoverWarnTokens` (default 250k) its first line
 reads `CONTEXT <N>k of <T>k. Before you start this task: ...`: a big task (a new lane, a plan, an

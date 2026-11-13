@@ -91,7 +91,7 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 
 | Piece | Kind | What it does |
 |---|---|---|
-| Session roles | UserPromptSubmit hook | Tells every session, on every message, whether it is the ORCHESTRATOR or a WORKER — including the operative rules for that role. Silent when no coordinator exists. |
+| Session roles | UserPromptSubmit hook (+ SessionStart after a compaction) | Tells every session, on every message, whether it is the ORCHESTRATOR or a WORKER. The operative rules for that role come in full at the first message, after a role change and after a compaction; every other message gets a short hint of three to five lines plus the lines that change per message. Silent when no coordinator exists. |
 | `/orchestrator claim\|release\|status` | command | Appoints this session as coordinator (marker file), hands the seat back, or shows who holds it. |
 | Worktree guard | PreToolUse hook | Denies direct edits inside configured main checkouts and points to the worktree workflow instead. Dormant until you configure repos. |
 | `/wt <name> new\|list\|run\|stop\|hold\|done` | command | Creates/lists/removes per-topic worktrees with the branch based on your configured base branch, deps installed. `done` refuses while the worktree is dirty, unpushed or any live process sits inside it, and deletes the branch (via `update-ref`, recording the tip) once it is merged into the base. A squash-merged branch counts as merged when every file it changed has the same content on the base (ancestry proves nothing there); if the base changed those files again afterwards it reads unpushed and is kept. |
@@ -133,7 +133,7 @@ changing hands · red = never.*
 
 1. You tell one session it is the coordinator.
 2. `claim` writes that session's id into the marker.
-3. Four hooks announce the role in every session, on every message — or say nothing when no seat is taken.
+3. Four hooks announce the role in every session, on every message (the full rules once, a short hint after) — or say nothing when no seat is taken.
 4. You start every worker session yourself, by hand. One lane = one session; a new lane gets a fresh session with the model named.
 5. The coordinator plans with you and writes a handoff doc.
 6. It sends the worker the doc's *path*, never the content — and only to live sessions: a session idle for an hour re-pays its whole context when you wake it.
@@ -153,7 +153,11 @@ changing hands · red = never.*
    `/orchestrator claim`, which records its session id in
    `<config-dir>/state/orchestrator` (one marker per scope, see [Scopes](#scopes)).
 2. On every user message, the role hook reads that marker plus Claude Code's live
-   session registry and announces the session's role with its contract. Workers talk
+   session registry and announces the session's role: the full contract at the session's
+   first message, after a role change and after a compaction (a SessionStart hook), a short
+   hint of three to five lines on every other message. A stamp per session under
+   `<config dir>/state/session-role/` remembers what was printed; if it cannot be read or
+   written, or with `MM_ROLE_FULL=1` set, every message gets the full contract. Workers talk
    ONLY to the coordinator; the coordinator plans, routes, and does not build.
 3. `release` (in the coordinating session) turns the regime off; with no living
    coordinator the hook is silent and every session works standalone. When the
@@ -437,7 +441,7 @@ day heading is not the day of that session's last turn is disregarded rather tha
 Nothing here is validated on write — a wrong shape parses as "no entry", which is
 indistinguishable from an absent file, which is why it is written out here.
 
-Until a log exists the role hook says so on every message instead of asking for the closed line,
+Until a log exists the role hook's full text says so instead of asking for the closed line,
 and `plugins/middle-management/templates/session-log.md` is a skeleton to start one from — copy
 it to the resolved path. One file per machine, never one per repository.
 
@@ -906,7 +910,7 @@ plugin never degrades silently. While the config is invalid, the worktree guard 
   and cross-session peer messaging — the substrate the roles ride on.
 - `jq`, `bash`, `python3`, GNU `date` (`date -d`), POSIX `ps`/`kill`. Linux tested; macOS
   expected-compatible but untested; Windows via WSL. `python3` is not heartbeat-only: it runs
-  `peer-state.py`, which the coordinator is pointed at on every message and which
+  `peer-state.py`, which the coordinator's role text points at and which
   `/orchestrator claim` needs to judge a stale seat, and it resolves [scopes](#scopes) once a
   `scopes` key exists. GNU `date` is what `/wt <name> hold
   <topic> <hours>` and the lane reaper do their timestamp and age math with — they refuse
