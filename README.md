@@ -134,7 +134,7 @@ changing hands · red = never.*
 1. You tell one session it is the coordinator.
 2. `claim` writes that session's id into the marker.
 3. Four hooks announce the role in every session, on every message (the full rules once, a short hint after) — or say nothing when no seat is taken.
-4. You start every worker session yourself, by hand. One lane = one session; a new lane gets a fresh session with the model named.
+4. Every lane gets its own fresh session with the model named: under T3 Code the coordinator starts the ones you ordered (`t3_thread_launch`), in a plain terminal you start them.
 5. The coordinator plans with you and writes a handoff doc.
 6. It sends the worker the doc's *path*, never the content — and only to live sessions: a session idle for an hour re-pays its whole context when you wake it.
 7. The worker reads the doc off disk.

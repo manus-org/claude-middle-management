@@ -602,6 +602,9 @@ twice the mark it says `Start nothing else first.`: hand over before anything el
 - **No banner at all** — either there is no coordinator (expected), or the hooks are not
   armed yet: right after installing or updating the plugin, start a new session or run
   `/reload-plugins`.
+- **Only the short role hint, the full rules gone from view** (a rewind or checkpoint restore to
+  before the first message keeps the stamp): delete `<config dir>/state/session-role/<sessionId>`
+  or set `MM_ROLE_FULL=1`; the next message prints the full text.
 - **"session registry not found"** — the running Claude Code build has no session
   registry, so role detection cannot work at all. Nothing to fix inside the plugin.
 - **Config warnings on every message** — the config file is unparseable or has the wrong
