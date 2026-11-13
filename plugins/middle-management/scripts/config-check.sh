@@ -109,6 +109,9 @@ validate() {
     and ((.t3Url // "http://x") | (type == "string" and test("\\Ahttps?://[^\\s\"]+\\z")))
     # 0.18.0 (README "Configuration"): the hand-over line of the coordinator banner; 0 = off.
     and (.handoverTokens | . == null or (type == "number" and . >= 0))
+    # 0.19.0 (README "Configuration"): the warn line before the mark; 0 = off. A value at or above
+    # the mark is valid but ignored by the hook (README says so).
+    and (.handoverWarnTokens | . == null or (type == "number" and . >= 0))
     # 0.15.0 (README "Quiet reports"): worker reports into an awake T3 coordinator without a turn each.
     and (.quietReports | . == null or ((type == "object")
           and ((.enabled // false) | type == "boolean")

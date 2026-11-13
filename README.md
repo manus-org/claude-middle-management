@@ -266,8 +266,14 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
   prints the default; an empty or blank string prints nothing.
 - `handoverTokens` (optional, 0.18.0, default 300000, `0` = off): the context size, in tokens,
   at which the coordinator's role banner opens with a hand-over line (`CONTEXT <N>k tokens, past
-  the hand-over mark of <T>k: hand over now ...`, from the hook input's transcript; past twice
-  the mark it adds `Start nothing else first.`). No figure, no line.
+  the hand-over mark of <T>k: hand over now ...`, from the hook input's transcript; below twice
+  the mark it allows a very small task first, past twice the mark it says `Start nothing else
+  first.`). No figure, no line; a prompt that is exactly `Keepalive` gets no line; `0` also
+  switches the warn line off.
+- `handoverWarnTokens` (optional, 0.19.0, default 250000, `0` = off): from this context size on,
+  below the mark, the coordinator's banner opens with one line `CONTEXT <N>k of <T>k. Before you
+  start this task: a big one (...) → hand over first; a very small one (...) → do it here.`, the
+  cue to prepare the handoff. A value at or above `handoverTokens` is ignored.
 - `morningTakeover`, `morningTaskUrlFile`, `morningWaitUntil`, `morningRoot` (optional, 0.11.1):
   the morning chain under T3 Code. See [Morning coordinator in T3 Code](#morning-coordinator-in-t3-code).
 - `replyTimestamp`, `intentCheck`, `intentCheckVerbs` (optional, 0.11.1, defaults `false` /

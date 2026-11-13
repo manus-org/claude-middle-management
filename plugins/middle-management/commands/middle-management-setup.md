@@ -46,6 +46,7 @@ Schema (setup adds no other key):
   "okBy": "user",
   "coordinatorModelRule": "the highest model available",
   "handoverTokens": 300000,
+  "handoverWarnTokens": 250000,
   "remindAfterHours": 2,
   "remindWindow": "08:00-22:00",
   "pageCommand": "",

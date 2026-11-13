@@ -218,7 +218,7 @@ lanes against your cap (CUSTOMIZE; three to four on one shared subscription); (3
 package queue for items the landing just unblocked; (4) tell every lane whose base moved to
 rebase, but by message only when `peer-state.py` shows it live and idle under an hour; for any
 other the note goes on the board for its next report, because a message to a cold session costs
-it its whole context; (5) check your own context fill and hand over at three quarters.
+it its whole context; (5) check your own context by the hand-over rule ("Fresh sessions", handover).
 
 **Surface every waiting session to your user, one line each.** Your user does not look
 into the other tabs. Whenever a worker waits for their go (a finished concept, a
@@ -549,10 +549,14 @@ Then it sends that session the PATH to the handoff doc by peer message. The outg
 coordinator releases the seat, the new one claims it. Under T3 Code the outgoing coordinator
 launches the successor's thread, sends it the path with `t3_thread_send`, runs
 `orchestrator.sh t3-handover --to-thread <id> --to-title <title>` and keeps seat and report task
-until the successor has claimed (`/orchestrator`, T3 branch). The cue is the role banner: once
-your context passes `handoverTokens` (default 300k), its first line reads `CONTEXT <N>k tokens,
-past the hand-over mark ...: hand over now`, and past twice the mark it adds `Start nothing else
-first.`; hand over before anything else.
+until the successor has claimed (`/orchestrator`, T3 branch). **Check your tokens when a task starts, not in the middle of one: that is the moment you can
+still choose. Prepare the handoff from the warn mark on.** The role banner gives the figure on
+every message except a bare `Keepalive`. From `handoverWarnTokens` (default 250k) its first line
+reads `CONTEXT <N>k of <T>k. Before you start this task: ...`: a big task (a new lane, a plan, an
+integration run, anything of several steps) waits for the successor, a very small one (one line,
+one answer, one settle) is done here. Past `handoverTokens` (default 300k) it reads `CONTEXT <N>k
+tokens, past the hand-over mark ...: hand over now`, still with room for a very small task; past
+twice the mark it says `Start nothing else first.`: hand over before anything else.
 
 ## Troubleshooting
 

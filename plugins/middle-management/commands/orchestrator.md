@@ -84,7 +84,9 @@ coordinator's thread (README, "T3 Code"). A script cannot call MCP tools, so you
    model available); compare your model with it (`orchestrator_capabilities` lists the available
    models). A better match is listed: say so in your first line and hand the seat to a thread on
    that model (item 5); the successor binds its own report task there.
-5. **Handover** (the banner's cue is a first line `CONTEXT <N>k tokens, past the hand-over mark`):
+5. **Handover** (the banner's cue is a first line `CONTEXT <N>k tokens, past the hand-over mark`;
+   from `handoverWarnTokens` on it reads `CONTEXT <N>k of <T>k. Before you start this task: ...`,
+   which is when you prepare the handoff and start no big task here):
    launch the successor thread (`t3_thread_launch`), then
    `orchestrator.sh t3-handover --to-thread <id> --to-title <title>`. Keep seat and report task
    until the successor has claimed; forward late reports to it with `t3_thread_send`.

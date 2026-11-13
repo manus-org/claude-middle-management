@@ -9,7 +9,8 @@
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
 #   H  coordinatorModelRule: the claim line (default, off, user rule; plain and --morning), config-check validate
-#   I  handoverTokens: the coordinator banner's hand-over line (fake transcripts), config-check validate
+#   I  handoverTokens / handoverWarnTokens: the coordinator banner's hand-over and warn lines (fake transcripts),
+#      no line for a Keepalive prompt, config-check validate
 #   Z  no webhook URL in any output
 # The takeover wake runs the REAL t3-wake.sh against a local HTTP stub that logs the request path.
 set -uo pipefail
@@ -340,25 +341,38 @@ is "config-check: a string is valid" "$(vcfg '{"coordinatorModelRule":"the highe
 is "config-check: blank is valid" "$(vcfg '{"coordinatorModelRule":""}')" 0
 is "config-check: a number is rejected" "$(vcfg '{"coordinatorModelRule":5}')" 1
 
-echo "== I: handoverTokens hand-over line =="
+echo "== I: handoverTokens hand-over line, handoverWarnTokens warn line =="
 H=$(new_home); as_s "$H" ho "$H" claim >/dev/null; me "$H" ho "$H"
 tx() {  # <tokens>: a fake transcript whose last usage line sums to <tokens>
   printf '{"type":"user","message":{"content":"hi"}}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' "$(($1 - 1))" > "$TMP/tx.jsonl"; }
 hrole() {  # <sessionId> <transcript> [T3 home or ""]
   printf '{"session_id":"%s","transcript_path":"%s"}' "$1" "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="${3-$H/.t3}" bash "$ROLE" 2>&1; }
-tx 299000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
-lacks "below the mark (default 300k) -> no hand-over line" "CONTEXT" "$OUT"
+hprompt() {  # <sessionId> <transcript> <prompt as a JSON string>: the same, with the prompt field
+  printf '{"session_id":"%s","transcript_path":"%s","prompt":%s}' "$1" "$2" "$3" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="$H/.t3" bash "$ROLE" 2>&1; }
+WARN_TAIL=". Before you start this task: a big one (a new lane, a plan, an integration run, anything of several steps) → hand over first; a very small one (one line, one answer, one settle) → do it here."
+tx 249000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+lacks "below the warn mark (default 250k) -> no token line" "CONTEXT" "$OUT"
 has "...the banner is unchanged" "Session role: ORCHESTRATOR" "$OUT"
+tx 299000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+is "past the warn mark, below the mark -> the FIRST line is the warn line" "$(head -1 <<<"$OUT")" "CONTEXT 299k of 300k$WARN_TAIL"
+lacks "...no 'hand over now'" "hand over now" "$OUT"
+has "...the rest of the banner follows" "Session role: ORCHESTRATOR" "$OUT"
+lacks "a Keepalive prompt -> no warn line" "CONTEXT" "$(hprompt sess-ho "$TMP/tx.jsonl" '"Keepalive"')"
+has "a normal prompt -> the warn line" "CONTEXT 299k of 300k" "$(hprompt sess-ho "$TMP/tx.jsonl" '"plan the next lane"')"
+has "a prompt that only mentions Keepalive -> still the line" "CONTEXT 299k of 300k" "$(hprompt sess-ho "$TMP/tx.jsonl" '"why was Keepalive sent?"')"
 tx 412000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
-is "past the mark, T3 -> the FIRST line says hand over now" "$(head -1 <<<"$OUT")" \
-  "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>."
+is "past the mark, T3 -> the FIRST line says hand over now, small-task exception" "$(head -1 <<<"$OUT")" \
+  "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>. Only a very small task (one line, one answer, one settle) may still be done here first."
 lacks "...below 2x: no 'start nothing else'" "Start nothing else first." "$OUT"
+lacks "...and no warn line on top" "of 300k." "$OUT"
+lacks "past the mark, Keepalive (whitespace around) -> no line" "CONTEXT" "$(hprompt sess-ho "$TMP/tx.jsonl" '"  Keepalive\n"')"
 has "...the rest of the banner follows" "Session role: ORCHESTRATOR" "$OUT"
 OUT=$(hrole sess-ho "$TMP/tx.jsonl" ""); L1=$(head -1 <<<"$OUT")
 has "past the mark, outside T3 -> the plain handover path" "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — ask your user for a fresh session" "$L1"
 lacks "...no t3-handover outside T3" "t3-handover" "$L1"
 tx 600000; OUT=$(hrole sess-ho "$TMP/tx.jsonl")
 has "at 2x the mark -> 'Start nothing else first.' on the first line" "Start nothing else first." "$(head -1 <<<"$OUT")"
+lacks "...and no small-task exception there" "very small task" "$(head -1 <<<"$OUT")"
 live "$H" w9 "$H" >/dev/null; lacks "a worker never gets the line" "CONTEXT" "$(hrole sess-w9 "$TMP/tx.jsonl")"
 lacks "no transcript file -> no line" "CONTEXT" "$(hrole sess-ho "$TMP/none.jsonl")"
 printf 'not json\n{"type":"assistant","message":{"usage":{"input_tokens":0}}}\n' > "$TMP/bad.jsonl"
@@ -367,6 +381,16 @@ has "...and the banner still prints" "Session role: ORCHESTRATOR" "$OUT"
 lacks "no transcript_path in the input -> no line" "CONTEXT" "$(printf '{"session_id":"sess-ho"}' | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="$H/.t3" bash "$ROLE" 2>&1)"
 printf '{"handoverTokens":0}\n' > "$H/.claude/middle-management.json"
 lacks "handoverTokens 0 -> off" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+tx 299000; lacks "handoverTokens 0 -> the warn line is off too" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverWarnTokens":0}\n' > "$H/.claude/middle-management.json"
+lacks "handoverWarnTokens 0 -> no warn line" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverWarnTokens":300000}\n' > "$H/.claude/middle-management.json"; tx 300000
+OUT=$(hrole sess-ho "$TMP/tx.jsonl"); has "warn mark at the mark -> ignored, the hand-over line" "past the hand-over mark of 300k" "$OUT"
+lacks "...and no warn line" "of 300k." "$OUT"
+printf '{"handoverWarnTokens":350000}\n' > "$H/.claude/middle-management.json"; tx 299000
+lacks "warn mark above the mark -> ignored, no line below the mark" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverTokens":200000,"handoverWarnTokens":100000}\n' > "$H/.claude/middle-management.json"; tx 150000
+is "both keys set -> their marks" "$(head -1 <<<"$(hrole sess-ho "$TMP/tx.jsonl")")" "CONTEXT 150k of 200k$WARN_TAIL"
 printf '{"handoverTokens":100000}\n' > "$H/.claude/middle-management.json"; tx 150000
 has "handoverTokens 100000 -> its mark" "CONTEXT 150k tokens, past the hand-over mark of 100k" "$(hrole sess-ho "$TMP/tx.jsonl")"
 rm -f "$H/.claude/sessions/$$.json"
@@ -374,6 +398,10 @@ is "config-check: handoverTokens number is valid" "$(vcfg '{"handoverTokens":300
 is "config-check: handoverTokens 0 is valid" "$(vcfg '{"handoverTokens":0}')" 0
 is "config-check: handoverTokens string is rejected" "$(vcfg '{"handoverTokens":"300k"}')" 1
 is "config-check: handoverTokens negative is rejected" "$(vcfg '{"handoverTokens":-1}')" 1
+is "config-check: handoverWarnTokens number is valid" "$(vcfg '{"handoverWarnTokens":250000}')" 0
+is "config-check: handoverWarnTokens 0 is valid" "$(vcfg '{"handoverWarnTokens":0}')" 0
+is "config-check: handoverWarnTokens string is rejected" "$(vcfg '{"handoverWarnTokens":"250k"}')" 1
+is "config-check: handoverWarnTokens negative is rejected" "$(vcfg '{"handoverWarnTokens":-5}')" 1
 
 echo "== Z =="
 lacks "no webhook secret in any output" "$S1" "$ALL"; lacks "...nor the second" "$S2" "$ALL"

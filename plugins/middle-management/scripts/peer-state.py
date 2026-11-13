@@ -4,7 +4,7 @@
 Consumers: scripts/orchestrator.sh (stale-seat check), scripts/orch-heartbeat.sh (keep-warm,
   reads --json from its installed copy), the coordinator by hand, the middle-management skill,
   the role hook's banner (hooks/session-role.sh prints the --wrapped/--waiting [--scope] hint and
-  runs --ctx for the coordinator's hand-over line),
+  runs --ctx for the coordinator's hand-over and warn lines),
   scripts/open-items.py, scripts/topics.py and scripts/t3-inbox.py (imported: is_live, registry),
   tests/peer-state.sh, tests/t3-seat.sh.
   Reads T3 Code's provider logs (thread column) and the T3 sidecars orchestrator.t3.json (never
