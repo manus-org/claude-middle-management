@@ -147,6 +147,14 @@ lacks "second message of the T3 worker -> the short hint" "Book every READY" "$O
 has "...report channel and Keepalive in one line" 'Your report = the last text of your turn (the Stop hook delivers it); never SendMessage or poke a T3 coordinator, never message other workers. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.' "$OUT"
 has "...names the asleep coordinator" 'The coordinator is asleep in T3 thread "coord one" (mcp:t-c1)' "$OUT"
 is "...at most five lines" "$(( $(printf '%s\n' "$OUT" | grep -c .) <= 5 ))" 1
+CP=$(live "$H" c1 "$H")   # the coordinator wakes: the role line changes, the rules do not
+OUT=$(role "$H" sess-w1); ALL="$ALL$OUT"
+has "coordinator awake -> the live role line" 'The coordinator is T3 thread "coord one" (mcp:t-c1) ("c1").' "$OUT"
+lacks "...still the short hint, no re-print" "Book every READY" "$OUT"
+kill "$CP" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$CP" 2>/dev/null || break; sleep 0.2; done
+OUT=$(role "$H" sess-w1); ALL="$ALL$OUT"
+has "asleep again -> the asleep line" "The coordinator is asleep in" "$OUT"
+lacks "...still the short hint" "Book every READY" "$OUT"
 OUT=$(role "$H" sess-w1 ""); has "a non-T3 worker -> report through t3-wake.sh" "scripts/t3-wake.sh\" \"w1\"" "$OUT"
 lacks "...no T3 worktree line" "belongs to T3" "$OUT"
 lacks "...no topics.py line (outside T3 the banner is unchanged)" "topics.py" "$OUT"

@@ -147,6 +147,7 @@ elif [ "$NAMED_COUNT" -ge 1 ] && ! printf '%s\n' "$NAMED" | grep -qxF "$ORCH"; t
 fi
 
 MY_NAME=$(name_of "$MY_ID")
+ROLE_L=""   # the worker's role line; it names the coordinator's liveness, so it stays out of the checksum
 
 # Marker route: identity by sessionId. Name route: by name, but never an empty one.
 if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
@@ -166,10 +167,10 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
       else
         HOW='ask your user for a fresh session, send it the path to your handoff doc, release the seat; it claims (middle-management skill, handover).'
       fi
-      if [ "$CTX" -ge $((2 * HT)) ]; then TAIL=' Start nothing else first.'
-      else TAIL=' Only a very small task (one line, one answer, one settle) may still be done here first.'; fi
+      if [ "$CTX" -ge $((2 * HT)) ]; then HO_TAIL=' Start nothing else first.'
+      else HO_TAIL=' Only a very small task (one line, one answer, one settle) may still be done here first.'; fi
       printf 'CONTEXT %dk tokens, past the hand-over mark of %dk: hand over now — %s%s\n' \
-        $((CTX / 1000)) $((HT / 1000)) "$HOW" "$TAIL"
+        $((CTX / 1000)) $((HT / 1000)) "$HOW" "$HO_TAIL"
     elif [ "${HW:-0}" -gt 0 ] && [ "$HW" -lt "$HT" ] && [ "$CTX" -ge "$HW" ]; then
       printf 'CONTEXT %dk of %dk. Before you start this task: a big one (a new lane, a plan, an integration run, anything of several steps) → hand over first; a very small one (one line, one answer, one settle) → do it here.\n' \
         $((CTX / 1000)) $((HT / 1000))
@@ -360,10 +361,13 @@ fi
 # release switches the role, a plugin update or a config change rewrites it) and again from the
 # SessionStart call after a compaction or /clear (hooks.json, matcher compact|clear). Every other
 # message gets SHORT plus DYN. The stamp <config dir>/state/session-role/<sessionId> holds the
-# checksum of the full text, names masked (a T3 peer name changes with every wake). Fail soft:
+# checksum of the full text without the worker's role line (a T3 coordinator flips between asleep
+# and awake all day; SHORT carries the live line anyway) and with names masked (a T3 peer name
+# changes with every wake). Fail soft:
 # no usable sessionId, an unreadable or unwritable stamp, or MM_ROLE_FULL=1 = the full text.
 # ponytail: one small stamp file per session, never pruned.
 SUM_IN="$FULL$TAIL"
+[ -n "$ROLE_L" ] && SUM_IN=${SUM_IN//"$ROLE_L"/}
 [ -n "$ORCH" ] && SUM_IN=${SUM_IN//"$ORCH"/}
 [ -n "$MY_NAME" ] && SUM_IN=${SUM_IN//"$MY_NAME"/}
 SUM=$(printf '%s' "$SUM_IN" | cksum)
