@@ -44,7 +44,7 @@ Schema (setup adds no other key):
   "quietReports": { "enabled": false, "fallbackMin": 20, "debounceMin": 10 },
   "userName": "user",
   "okBy": "user",
-  "coordinatorModelRule": "",
+  "coordinatorModelRule": "the highest model available",
   "handoverTokens": 300000,
   "remindAfterHours": 2,
   "remindWindow": "08:00-22:00",
@@ -256,7 +256,8 @@ repositories; the user names them.
     pathfinder-schema `questions.json` path as `$1` and prints the page link as its last
     line (without it, more than three due questions go out as one inline digest). Ask for
     `coordinatorModelRule` too: which model the coordinator should run on, in the user's words
-    (e.g. "the highest available Fable"); every `claim` prints it, blank prints nothing.
+    (default "the highest model available", e.g. "the highest available Fable"); every `claim`
+    prints it, an empty string turns the line off.
 
 16. **T3 Code** (only where sessions run in T3 Code threads). `t3Url`, the T3 server the
     watcher and `t3-token.sh` talk to: write `http://127.0.0.1:<port>` with the port of this

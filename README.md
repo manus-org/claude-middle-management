@@ -258,10 +258,12 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
 - `quietReports` (optional, 0.15.0, default off): `{"enabled": true, "fallbackMin": 20,
   "debounceMin": 10}` sends worker reports into an awake T3 coordinator without a turn each.
   Machine-wide: it switches the coordinator of every scope. See [Quiet reports](#quiet-reports).
-- `coordinatorModelRule` (optional, 0.18.0, default none): the model the coordinator should run
-  on, in the user's words. Every successful `claim` (also `--morning`) prints it in one line that
-  tells the session to compare its model with it and, on a better match, to tell the user and
-  recreate its report task there. Absent or blank prints nothing.
+- `coordinatorModelRule` (optional, 0.18.0, default `"the highest model available"` since 0.19.0,
+  `""` = off): the model the coordinator should run on, in the user's words. Every successful
+  `claim` (also `--morning`) prints it in one line that tells the session to compare its model
+  with the available ones and, on a better match, to say so first and hand the seat to a session
+  on that model; its successor and the scheduled morning coordinator get that model too. Absent
+  prints the default; an empty or blank string prints nothing.
 - `handoverTokens` (optional, 0.18.0, default 300000, `0` = off): the context size, in tokens,
   at which the coordinator's role banner opens with a hand-over line (`CONTEXT <N>k tokens, past
   the hand-over mark of <T>k: hand over now ...`, from the hook input's transcript; past twice

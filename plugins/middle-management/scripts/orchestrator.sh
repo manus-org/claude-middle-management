@@ -515,10 +515,15 @@ case "${1:-status}" in
     if [ "$WIN" -lt "$MIDNIGHT" ]; then
       echo "No morning ritual was delivered today — run middle-management:morning-ritual now (step 6, your user's to-do list, at least)."
     fi
-    # 0.18.0 (README, configuration list): the user's rule for the coordinator's model, on every claim.
-    RULE=$(jq -r '.coordinatorModelRule | strings | select(test("\\S"))' "$(bash "$DIR/config-check.sh" file)" 2>/dev/null)
+    # 0.18.0, default since 0.19.0 (README, configuration list): the rule for the coordinator's
+    # model, on every claim. Absent/null = the shipped default; "" or blank = off (like handoverTokens 0).
+    RULE_DEFAULT="the highest model available"
+    CFGF=$(bash "$DIR/config-check.sh" file 2>/dev/null)
+    if [ -r "$CFGF" ]; then
+      RULE=$(jq -r --arg d "$RULE_DEFAULT" '.coordinatorModelRule // $d | strings | select(test("\\S"))' "$CFGF" 2>/dev/null) || RULE=$RULE_DEFAULT
+    else RULE=$RULE_DEFAULT; fi
     if [ -n "$RULE" ]; then
-      echo "Coordinator model: $RULE. Compare your model with it (in T3: orchestrator_capabilities lists the available models); if a better match is available, tell your user first and recreate your report task on it (/orchestrator \"T3 Code\" item 4)."
+      echo "Coordinator model: $RULE. Compare your model with the list of available models (in T3 Code: orchestrator_capabilities); a better match is listed: say so in your first line and hand the seat to a session on that model (in T3 Code: t3_thread_launch, then t3-handover; /orchestrator \"T3 Code\" item 5). Your successor and the scheduled morning coordinator get that model too."
     fi
     if rc_off; then
       echo ""

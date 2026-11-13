@@ -59,6 +59,13 @@ before the day plan.
 over a name; two `orch*` sessions without a marker make the roles undefined, and the hook
 says so loudly.
 
+**The coordinator runs on the highest model available.** At claim, compare your model with the
+list of available models (in T3 Code: `orchestrator_capabilities`); a higher one is listed: say
+so in your first line and hand the seat to a thread on that model. Successor threads and the
+scheduled morning coordinator get the highest model too. `claim` prints this as its
+`Coordinator model:` line; the config key `coordinatorModelRule` puts the user's own rule in
+place of "the highest model available", and an empty string turns the line off.
+
 **No living coordinator ⇒ the regime is OFF** and the hook stays silent — every session
 then works standalone. A user working alone in one session never needs to claim.
 

@@ -47,8 +47,8 @@ asleep in its own T3 thread. Before step 1, in this order:
    `orchestrator.sh claim --thread <currentThreadId> --morning` (`/orchestrator`, "T3 Code" item 7).
    It works only with the user's standing word in the config key `morningTakeover`; a `REFUSED` or
    `BUSY` ends the ritual here: say what the script printed, in this thread, and wait for your user.
-2. Report task + `t3-bind`, as `/orchestrator` "T3 Code" items 2-3 say. When the claim printed a
-   `Coordinator model:` line, compare your model with it first (`/orchestrator` "T3 Code" item 4).
+2. Report task + `t3-bind`, as `/orchestrator` "T3 Code" items 2-3 say. The claim prints a
+   `Coordinator model:` line (unless the config turned it off): compare your model with it first (`/orchestrator` "T3 Code" item 4).
 3. Settle the predecessor the claim named: `delete_scheduled_task <its report task>` (the id is in
    the `SETTLE` line and in `orchestrator.sh status`), read what it left off disk
    (`peer-state.py --session-id <its id>`, `open-items.py list`), then settle its thread by the

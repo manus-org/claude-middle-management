@@ -8,7 +8,7 @@
 #   D  scopeMode per-root: two roots, no catch-all, a standalone session
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
-#   H  coordinatorModelRule: the claim line (plain and --morning), config-check validate
+#   H  coordinatorModelRule: the claim line (default, off, user rule; plain and --morning), config-check validate
 #   I  handoverTokens: the coordinator banner's hand-over line (fake transcripts), config-check validate
 #   Z  no webhook URL in any output
 # The takeover wake runs the REAL t3-wake.sh against a local HTTP stub that logs the request path.
@@ -318,12 +318,20 @@ printf '{"by":"sess-m2"}\n' > "$PF"; as_s "$H" m2 "$H" release >/dev/null
 
 echo "== H: coordinatorModelRule =="
 H=$(new_home); CF=$H/.claude/middle-management.json
-OUT=$(as_s "$H" h1 "$H" claim); lacks "no key -> no model line" "Coordinator model:" "$OUT"
+OUT=$(as_s "$H" h1 "$H" claim); has "no config file -> the default model line" "Coordinator model: the highest model available. Compare your model" "$OUT"
+has "...names orchestrator_capabilities, first line, hand the seat" 'available models (in T3 Code: orchestrator_capabilities); a better match is listed: say so in your first line and hand the seat to a session on that model' "$OUT"
+has "...successor and morning coordinator too" "Your successor and the scheduled morning coordinator get that model too." "$OUT"
+printf '{"userName":"u"}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); has "key absent -> the default model line" "Coordinator model: the highest model available." "$OUT"
+printf '{"coordinatorModelRule":null}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); has "key null -> the default model line" "Coordinator model: the highest model available." "$OUT"
+printf '{"coordinatorModelRule":""}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); lacks "empty string -> off, no model line" "Coordinator model:" "$OUT"
 printf '{"coordinatorModelRule":"  "}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
-OUT=$(as_s "$H" h1 "$H" claim); lacks "blank key -> no model line" "Coordinator model:" "$OUT"
+OUT=$(as_s "$H" h1 "$H" claim); lacks "blank key -> off, no model line" "Coordinator model:" "$OUT"
 printf '{"coordinatorModelRule":"the highest available Fable"}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
-OUT=$(as_s "$H" h1 "$H" claim); has "key set -> the model line" "Coordinator model: the highest available Fable. Compare your model" "$OUT"
-has "...names orchestrator_capabilities and item 4" 'orchestrator_capabilities lists the available models); if a better match is available, tell your user first and recreate your report task on it (/orchestrator "T3 Code" item 4)' "$OUT"
+OUT=$(as_s "$H" h1 "$H" claim); has "key set -> the user's rule replaces the default" "Coordinator model: the highest available Fable. Compare your model" "$OUT"
+lacks "...and the default is not printed" "the highest model available" "$OUT"
 g_home "3 hours ago"; jq '.coordinatorModelRule = "the highest available Fable"' "$H/.claude/middle-management.json" > "$TMP/x"; cp "$TMP/x" "$H/.claude/middle-management.json"
 OUT=$(as_s "$H" m1 "$H" claim --thread mcp:t-m1 --morning); has "--morning claim -> the model line too" "Coordinator model: the highest available Fable." "$OUT"
 vcfg() { printf '%s' "$1" > "$TMP/vc/middle-management.json"; CLAUDE_CONFIG_DIR="$TMP/vc" bash "$P/scripts/config-check.sh" validate >/dev/null 2>&1; echo $?; }
