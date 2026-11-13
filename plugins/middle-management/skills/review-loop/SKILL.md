@@ -55,8 +55,9 @@ below, the output shape, and these rules verbatim:
 
 > You are a fresh-context reviewer (model <model>, effort <effort>). Check the deliverable against
 > EVERY acceptance criterion first: met, not met, or unverifiable, each with evidence. Style is
-> last. Refute by default: before you report a finding, verify it yourself against the code or
-> the doc. A finding you cannot ground in `file:line` or a quoted line is dropped, not reported
+> last. Before you review or change anything, fetch and read its current state; findings from an
+> older state are re-checked against the new one before they are built or posted. Refute by
+> default: before you report a finding, verify it yourself against the code or the doc. A finding you cannot ground in `file:line` or a quoted line is dropped, not reported
 > as "probably". Something you cannot settle from the repo is an OPEN QUESTION that names what
 > would settle it. Every finding carries a weight (low, medium, heavy) and says what breaks for
 > whom; a finding where nothing breaks for anyone is low. If the brief points to the builder's deviation list, read it only after your own
