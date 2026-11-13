@@ -117,9 +117,12 @@ how many are met. The coordinator then checks your list against the kickoff inst
 re-deriving it from prose.
 
 **Run the review loop before either claim.** Your plan before you build, your result before you
-report it ready: skill `review-loop`, a fresh reviewer per round, refute by default, until a
-round finds nothing, at most 4 rounds. The report names the round count and the last verdict;
-a lane that hit the cap reports its open findings and is not ready.
+report it ready: skill `review-loop`, a fresh reviewer per round, refute by default, every
+finding with a weight (low, medium, heavy) and what breaks for whom. One or two rounds are
+normal; another round only after a medium or heavy finding, never for low ones (they are listed
+as open points); at most 3 rounds, 4 for access and security, data loss, published interfaces and
+code your team does not own. The report names the round count and the last verdict; a lane that
+hit the cap reports its open medium and heavy findings and is not ready.
 
 **"Ready" names the commit it was tested on.** Your ready report carries the tip SHA your tests
 and blocker check ran on. A rebase or a new commit voids the claim until you re-run on the new

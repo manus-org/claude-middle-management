@@ -164,8 +164,9 @@ plugin's staging guard exists to stop — then commit with a message mirroring t
 Run the `review-loop` skill on what this session delivered (the result; the handoff already had
 its own loop in step 5), unless it already ran on the final state; a change made after its last round means it
 did not. The recap names the round count and the last reviewer's verdict, e.g. `Review loop: 2
-rounds, last verdict CLEAN (Opus 5.5, xhigh)`, or after the cap of 4 the findings still open.
-Fixes are committed like step 7; findings still open after the cap join the step 5 list, the
+rounds, last verdict CLEAN (Opus 5.5, xhigh)`, or after the cap (review-loop step 5) the medium
+and heavy findings still open. Low findings never cause another round; they join the step 5 list
+as open points. Fixes are committed like step 7; findings still open after the cap join the step 5 list, the
 drop file (followed by a fresh `--wrapped`) and the handoff. A session that delivered nothing reviewable says so in one line.
 Now write step 4's closing entry with `topics.py entry ... --review "<rounds, verdict>" --closed`.
 

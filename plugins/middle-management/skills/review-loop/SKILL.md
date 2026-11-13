@@ -1,14 +1,15 @@
 ---
 name: review-loop
-description: The review loop every deliverable goes through before it is handed on as finished. A fresh-context reviewer sub-agent checks it against its acceptance criteria and verifies every finding against the code or doc (refute by default), the session fixes what was confirmed, and a NEW fresh reviewer runs again, until a round comes back with zero confirmed findings or the hard cap of 4 rounds is reached. Use before a plan or handoff doc is sent, before ExitPlanMode on a real plan, before a finished result (code, docs, a lane) is reported as done, ready or "geprüft", when the review gate hook denies a plan or handoff, and on "review loop", "review until clean", "prüf den Plan", "review the plan", "lass das reviewen".
+description: The review loop every deliverable goes through before it is handed on as finished. A fresh-context reviewer sub-agent checks it against its acceptance criteria and verifies every finding against the code or doc (refute by default), the session fixes what was confirmed, and a NEW fresh reviewer runs again only after a medium or heavy finding. One or two rounds are normal; low findings never cause another round (they become open points); four rounds only for access and security, data loss, published interfaces and code your team does not own. Use before a plan or handoff doc is sent, before ExitPlanMode on a real plan, before a finished result (code, docs, a lane) is reported as done, ready or "geprüft", when the review gate hook denies a plan or handoff, and on "review loop", "review until clean", "prüf den Plan", "review the plan", "lass das reviewen".
 ---
 
-# Review loop: until clean, at most 4 rounds
+# Review loop: one or two rounds, more only by weight
 
 The session that built something cannot see what it left out: it inherits its own blind spots.
 A reviewer with fresh context can, and a reviewer that has to prove each finding cannot drown
 you in guesses. So every deliverable is reviewed, fixed and reviewed again by a new reviewer
-until a round finds nothing, and the loop has a hard end so it never grinds.
+while a round still finds something that matters, and the loop has a hard end so it never grinds:
+a finding's weight decides whether it buys another round, not its mere existence.
 
 **When.** Whenever you believe a deliverable is finished:
 - a **plan, concept or handoff doc**, BEFORE it is sent (to your user, the coordinator, a worker);
@@ -37,9 +38,9 @@ A sub-agent shares nothing with you; everything travels in its prompt:
 |---|---|
 | Default | **Opus** (currently Opus 5.5, `claude-opus-5-5`), effort **xhigh** |
 | Critical deliverable: money, security, data, customer path | **Fable** (`claude-fable-5-1`), effort xhigh, from round 1 |
-| Opus still has confirmed findings after 2 rounds | **Fable** for rounds 3 and 4 |
+| A third round is due (step 5) | **Fable** for round 3, and round 4 where step 5 allows one |
 
-Both switches stay inside the 4-round cap; escalating never buys extra rounds. Name the model
+Both switches stay inside the round limit of step 5; escalating never buys extra rounds. Name the model
 and effort in the reviewer's prompt, and set them on the sub-agent call (`model: opus` or
 `model: fable`).
 
@@ -57,7 +58,8 @@ below, the output shape, and these rules verbatim:
 > last. Refute by default: before you report a finding, verify it yourself against the code or
 > the doc. A finding you cannot ground in `file:line` or a quoted line is dropped, not reported
 > as "probably". Something you cannot settle from the repo is an OPEN QUESTION that names what
-> would settle it. If the brief points to the builder's deviation list, read it only after your own
+> would settle it. Every finding carries a weight (low, medium, heavy) and says what breaks for
+> whom; a finding where nothing breaks for anyone is low. If the brief points to the builder's deviation list, read it only after your own
 > walk is written to the report file, then check each deviation.
 > Report file: <scratch dir>/review-<deliverable>-r<N>.md
 > Write that file first (a title and your packages), append each result at once, and return at
@@ -119,14 +121,21 @@ pull request also gets the repo-rules walk of step 7.
 **Output shape**, per finding:
 
 ```
-[BLOCKER|GAP|QUESTION] <lens or criterion> - <one-line claim>
+[BLOCKER|GAP|QUESTION] [low|medium|heavy] <lens or criterion> - <one-line claim>
 evidence: <file:line, or quoted doc line, or "unverified — question">
+what breaks for whom: <who notices what, and when>
 the question the human would have asked: "<…>"
 ```
 
+**Weights.** **heavy**: the deliverable misses its goal, or someone loses data, access or money, or
+a published interface (an API, a schema, a contract others build on) breaks. **medium**: an
+acceptance criterion is not met, or a real user or caller gets wrong behaviour in a case that
+actually happens. **low**: everything else: wording, naming, style, a rare case with a cheap way
+round it, nothing anyone notices soon.
+
 Findings only: a summary of the deliverable is wasted tokens. Last line: `CLEAN` (every
-criterion met, every lens covered, zero findings; the completeness gate called this `PASS`) or
-`FINDINGS: <n>`.
+criterion met, every lens covered, no medium or heavy finding; low findings stay listed above it;
+the completeness gate called this `PASS`) or `FINDINGS: <n> (<m> medium or heavy)`.
 
 ## Step 4: verify every finding yourself, then fix
 
@@ -144,28 +153,41 @@ Each finding leaves this step with one verdict:
 | REFUTED | dropped, with the evidence that killed it — it never reaches the human |
 | OPEN QUESTION | ungroundable from the repo; names exactly what would settle it |
 
+Check the weight as well as the claim: a finding whose "what breaks for whom" you cannot confirm
+is low, whatever the reviewer called it.
+
 Findings that survive get fixed — in the plan, or in the code if that is the task. Every confirmed
-finding is fixed or decided by your user; none goes to the maintainer as "if you prefer". An open
+medium or heavy finding is fixed or decided by your user; a low one is fixed in passing when it is
+cheap, otherwise listed as an open point in your report. None goes to the maintainer as "if you
+prefer". An open
 question goes to whoever can answer it; it does not block the next round. Handing an unverified
 reviewer dump to the human is the failure this step exists to prevent.
 
 ## Step 5: loop
 
-Back to step 3 with a NEW reviewer on the **revised** deliverable, fresh context again. The loop
-ends **clean** when a round returns **zero confirmed findings**. It also stops, NOT clean, when two
-consecutive rounds surface nothing new (only findings already confirmed-and-open or refuted
-before): then it ends as after round 4 below, with the open confirmed findings reported and nothing
-called clean. Every round is cheaper than the correction round it prevents.
+**One or two rounds are normal.** Weight decides whether another round runs:
+- A round with **no confirmed medium or heavy finding** ends the loop **clean**. Its low findings
+  are fixed in passing or listed as open points; **a low finding never causes another round.**
+- A round with a confirmed medium or heavy finding: fix it, then back to step 3 with a NEW
+  reviewer on the **revised** deliverable, fresh context again.
+- **A third round** runs only when round 2 still confirmed a medium or heavy finding.
+- **A fourth round** runs only for a deliverable that touches access and security, data loss,
+  a published interface, or code your team does not own, and only when round 3 still confirmed
+  a medium or heavy finding there.
 
-**Hard cap: 4 rounds per deliverable, no exception.** After round 4 you stop, report the
-findings still open to the coordinator or your user, and do NOT call the deliverable clean,
-ready or "geprüft". A fifth round, a "quick last check", a reviewer told to be lenient: all of
-them are the grinding this cap exists to stop.
+The loop also stops, NOT clean, when two consecutive rounds surface nothing new (only findings
+already confirmed-and-open or refuted before): then it ends as at the cap below.
+
+**Hard cap: 3 rounds per deliverable, 4 for the four areas above, no exception.** After the last
+allowed round you stop, report the medium and heavy findings still open to the coordinator or
+your user, and do NOT call the deliverable clean, ready or "geprüft". One more round, a "quick
+last check", a reviewer told to be lenient: all of them are the grinding this cap exists to stop.
 
 ## Step 6: open the gate, report the loop
 
 If the review gate hook is on (`reviewLoopGate: true`), the marker is the record that the loop
-ran; write it after the last round, clean or capped:
+ran; write it after the last round, clean or capped (`open` counts the medium and heavy findings
+still open):
 
 ```bash
 D="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state/review-loop"; mkdir -p "$D"
@@ -183,15 +205,15 @@ The gate also accepts the marker of the older completeness gate,
 moving from a site-local `plan-review` skill to this loop loses no open gate on the switch.
 
 What your user or the coordinator reads is the result of the loop — the **delta**, never a raw
-reviewer dump: confirmed findings with evidence, what was fixed, what stays open and why, how many
-rounds it took, the last reviewer's model and verdict. Refuted claims are named as refuted: they
+reviewer dump: confirmed findings with weight and evidence, what was fixed, what stays open and
+why (low findings as open points), how many rounds it took, the last reviewer's model and verdict. Refuted claims are named as refuted: they
 are the proof that the verification step ran. In one line, for a report or a wrap
-recap: `Review loop: 2 rounds, last verdict CLEAN (Opus 5.5, xhigh).`
+recap: `Review loop: 2 rounds, last verdict CLEAN (Opus 5.5, xhigh), 1 low open point.`
 
 ## Step 7: before the pull request
 
 A diff bound for a pull request gets one more fresh reviewer once the loop ended clean: the
-**repo-rules walk**. It runs under the step-3 rules and gets only the diff and every `AGENTS.md`
+**repo-rules walk**. It is a separate check with its own exit, not a review-loop round. It runs under the step-3 rules and gets only the diff and every `AGENTS.md`
 above a touched file (the repo root plus each touched app or package). It returns one row per
 applicable rule: `followed`, or `broken <file:line>`. The PR opens at zero `broken`: fix, then walk
 again with a new reviewer.

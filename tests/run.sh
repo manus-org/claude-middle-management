@@ -1044,6 +1044,8 @@ assert_empty "config without the key -> gate silent" "" "$(rlg Write "$HANDOFF")
 printf '{"reviewLoopGate":true,"protectedCheckouts":[]}' > "$H/.claude/middle-management.json"
 assert_has "handoff write without a review -> denied" '"deny"' "$(rlg Write "$HANDOFF")"
 assert_has "the denial names the skill" "review-loop" "$(rlg Write "$HANDOFF")"
+assert_has "the denial states the rounds-by-weight rule" "re-reviewed only after a medium or heavy finding" "$(rlg Write "$HANDOFF")"
+assert_lacks "...not the old flat cap" "at most 4 rounds" "$(rlg Write "$HANDOFF")"
 assert_has "a long plan without a review -> denied" '"deny"' "$(rlg ExitPlanMode "$LONGPLAN")"
 assert_empty "a two-line plan -> passes" "" "$(rlg ExitPlanMode '{"plan":"fix the typo"}')"
 assert_empty "any other file -> passes" "" "$(rlg Write '{"file_path":"/x/docs/notes.md","content":"x"}')"

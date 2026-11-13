@@ -33,7 +33,8 @@ hook manager's skip switch.
 
 ## Review
 
-The review-loop skill runs until a CLEAN round. The builder's deviation list sits in a file the
+The review-loop skill runs until a CLEAN round (no medium or heavy finding); one or two rounds
+are normal, low findings become open points. The builder's deviation list sits in a file the
 reviewer opens only after its own walk is written.
 
 ## Before the PR
