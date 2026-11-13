@@ -1293,10 +1293,21 @@ if git -C "$ROOT" archive 8d41d58 plugins/middle-management 2>/dev/null | tar -x
   mine "$H" "$H/ad"; G0B="$(add_peer "$H" beta interactive "$H/ad")"; G0G="$(add_peer "$H" gamma)"
   sleep 300 >/dev/null 2>&1 </dev/null & G0N=$!
   printf '{"pid":%s,"sessionId":"sess-nameless","kind":"interactive","cwd":""}\n' "$G0N" > "$H/.claude/sessions/$G0N.json"
+  # 0.19.0 rewrote two coordinator passages on purpose (who starts a lane; cleanup at the merge).
+  # The old output gets exactly those passages swapped for the new ones, so every other byte still
+  # has to match; a passage that no longer matches leaves the old text in place and fails loudly.
+  up019() { python3 -c 'import sys
+s = sys.stdin.read()
+for a, b in zip(sys.argv[1::2], sys.argv[2::2]): s = s.replace(a, b)
+sys.stdout.write(s)' \
+    $'larger packages go to interactive worker sessions your user starts. Fallback: a\npackage that is clear AND uncritical and only waits for the user to start a session — do not\nwait for hours; run it via sub-agent with the recommended option and record the decision.' \
+    $'larger packages go to worker sessions: start it yourself where your host lets you, else ask your user to open one and name the model.\nFallback where only your user can start one: a package that is clear AND uncritical and only waits\nfor that session — do not wait for hours; run it via sub-agent with the recommended option and record the decision.' \
+    $'destruction — done unasked; anything dirty, unpushed or unmerged stays and goes to your user.\nOne lane = one session: a new lane gets a FRESH session — ask your user to open one and name\nthe model; never stack' \
+    $'destruction — done unasked, at the merge: a lane\'s pull request is merged -> in the same turn stop\nits unit, remove its worktree (/wt <name> done <topic>), delete its branch, and put the\n/wt list line into your report. Dirty, unpushed or unmerged: it stays and goes to your user.\nOne lane = one session: a new lane gets a FRESH session — start it yourself where your host lets you, else ask your user to open one and name the model;\nnever stack'; }
   golden() {  # golden <label> <sessionId>: old and new hook, same home, same stdin
     local old
     new="$(printf '{"session_id":"%s"}' "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" bash "$ROLE" 2>&1)"
-    old="$(printf '{"session_id":"%s"}' "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$OP" bash "$OP/hooks/session-role.sh" 2>&1 | sed "s|$OP|$P|g")"
+    old="$(printf '{"session_id":"%s"}' "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$OP" bash "$OP/hooks/session-role.sh" 2>&1 | sed "s|$OP|$P|g" | up019)"
     [ "$new" = "$old" ] && ok "S0 byte-identical to upstream 0.9.0: $1" || bad "S0 byte-identical to upstream 0.9.0: $1" "$(diff <(printf '%s\n' "$old") <(printf '%s\n' "$new"))"
   }
   ostatus() { HOME="$H" CLAUDE_CONFIG_DIR="" bash "$1" status 2>&1 | sed "s|$OP|$P|g"; }
