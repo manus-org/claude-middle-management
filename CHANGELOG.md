@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.19.0 - 2026-11-13
+
+**The role hook prints the full rules once, then a short hint.** The full WORKER / ORCHESTRATOR
+text goes out at a session's first message, again when it changes (a claim or a release switches
+the role, a plugin update or a config change rewrites it) and again after a compaction or `/clear`
+(new SessionStart registration of `hooks/session-role.sh`, matcher `compact|clear`). Every other
+message gets three to five lines: the role and where the seat is, the coordinator's event duties
+in one line ("a lane reports done and wrapped → settle it" under T3 Code, "a lane's pull request is
+merged → clean up its lane", "a task starts → check your tokens"), the report channel, a pointer
+to the `middle-management` skill and the write-now habit, plus the lines whose content changes per
+message (the token line, the open-items count, the worker list). A stamp per session under
+`<config dir>/state/session-role/` holds the checksum of the full text; an unreadable or
+unwritable stamp, or `MM_ROLE_FULL=1` in the environment, prints the full text as before. Per
+later message: coordinator 4,391 → 585 characters (T3 Code 6,148 → 869), worker 1,661 → 576
+(T3 Code 2,301 → 725). The skill gains the few rules only the banner carried. Cause: the role
+rules were sent with every single message, about 6,000 characters each, 2026-11-13.
+
+- **The coordinator checks its tokens when a task starts** (`hooks/session-role.sh`, new optional
+  config key `handoverWarnTokens`, default 250000, `0` = off, ignored unless below
+  `handoverTokens`): from the warn mark the banner opens with "CONTEXT <N>k of <mark>k. Before you
+  start this task: a big one ... → hand over first; a very small one ... → do it here."; past the
+  mark the hand-over line keeps room for a very small task, past twice the mark it still says
+  "Start nothing else first."; a prompt that is exactly `Keepalive` gets no token line. The skill
+  states the rule once and drops "hand over at three quarters". Cause: hand-over decided mid-task
+  instead of at its start, 2026-10-22 and 2026-11-13.
+- **The coordinator-model line ships a default** (`scripts/orchestrator.sh`,
+  `coordinatorModelRule` default `"the highest model available"`, `""` = off): every claim tells
+  the coordinator to compare its model with the available ones (in T3 Code:
+  `orchestrator_capabilities`), to say so in its first line when a better one is listed and to hand
+  the seat to a session on that model; its successor and the scheduled morning coordinator get
+  that model too. A user's own rule still replaces the default. Cause: coordinators kept running on
+  a lower model than available, 2026-11-10 and 2026-11-13.
+- **The coordinator starts ordered lanes itself** (`hooks/session-role.sh`, `skills/middle-management`,
+  morning ritual day plan, README): in T3 Code with `t3_thread_launch`, elsewhere where the host
+  lets it; only where it cannot start a session (a plain terminal) does it ask the user to open
+  one. Cause: the banner told coordinators on every message to ask the user, so they kept asking
+  although they could launch the thread, 2026-11-09.
+- **Settling happens at the event** (`hooks/session-role.sh` under T3 Code, `skills/middle-management`
+  "Resource hygiene is yours", README "Settle, not archive"): a lane that reports done and wrapped
+  gets its thread and its sub-agent threads settled in the same turn after the completeness check,
+  and the coordinator sweeps for finished, unsettled threads when it takes the seat, after every
+  wrap and before it hands over. Cause: settling mostly waited for the next morning ritual,
+  2026-11-13.
+- **Lane cleanup is tied to the merge** (`hooks/session-role.sh`, `skills/middle-management` "Where
+  the line runs"): when a lane's pull request is merged, the coordinator in the same turn stops its
+  unit, removes its worktree (`/wt <name> done <topic>`, squash merges included; a T3 worktree once
+  its thread is settled), deletes its branch and puts the `/wt list` line into its report; dirty or
+  unpushed work stays and goes to the user. Cause: merged worktrees waited for the reaper or the
+  next morning, 2026-11-13.
+- **Review loop by weight** (`skills/review-loop`, review gate text, worker section, wrap 7b, PR
+  gate checklist, lane-brief template): every finding carries a weight (low / medium / heavy) and
+  what breaks for whom; one or two rounds are normal, another round only after a medium or heavy
+  finding, low findings become open points and never cause a round; hard cap 3 rounds, 4 for access
+  and security, data loss, published interfaces and code the team does not own. CLEAN now means no
+  medium or heavy finding. Cause: loops ran to the 4-round cap almost every time, 2026-11-13.
+- **Read the current state first** (`skills/review-loop` reviewer rules, lane-brief template):
+  "Before you review or change anything, fetch and read its current state; findings from an older
+  state are re-checked against the new one before they are built or posted." Asked for on
+  2026-11-13.
+- **Decision cards and pages as an approval channel** (`skills/middle-management`): an explicit
+  written decision or go on a card or page counts like the user's word in the tab and is booked
+  verbatim; a bare option click or an untouched pre-ticked option is a choice between options, not
+  a go for an outward action; click and comment disagree means say so and wait. Cause: card
+  decisions were not recognised as the user's word, 2026-11-12.
+- **`open-items.py list` no longer calls cleanly wrapped sessions "died unwrapped"**
+  (`scripts/open-items.py`): the wrap skill's `Session: closed · <id>` marker now counts as wrapped
+  next to the drop's `- WRAPPED` line, so a wrap that skipped `add --wrapped` is no longer routed
+  to a backfill. Cause: wrapped sessions listed as crashed in a morning run, 2026-11-13.
+- **Squash-merged lanes are found by content** (`scripts/wt`, `scripts/lane-reaper.sh`): when every
+  file a lane changed since its merge-base has the same content on the base, `wt list` reads it
+  `merged yes` instead of `unpushed`, `wt done` removes it and deletes its branch, and the reaper
+  cleans it up without `gh`. A dirty tree still blocks; a lane whose files the base changed again
+  after the merge stays listed. Cause: a squash-merged lane reported as unpushed work and never
+  cleaned up, 2026-11-13.
+- **A lane brief already copied into a project is not refreshed:** copy the new
+  `templates/docs/docs/handoffs/lane-brief.md` over your project's copy if you keep one
+  (`pr-gate.md` is copied from the plugin per pull request, so it is current).
+
 ## 0.18.0 - 2026-11-10
 
 **Settling is the coordinator's step, with a check right before it.** A worker no longer settles
