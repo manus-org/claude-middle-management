@@ -126,7 +126,7 @@ backfill** (never for a T3 session, see above): `claude --resume <sessionId> -p 
 (coordinator, date): …"`, sequential, in the background. The backfill prompt names:
 why (session died), what is already recorded on the board (so work is NOT
 repeated), the owed artifacts, its open-items drop file (`open-items.py list` marks
-it "died unwrapped"; the wrap adds what is missing there and ends it with `--wrapped`),
+it "died unwrapped" when it has neither a `- WRAPPED` line nor a closed marker; the wrap adds what is missing there and ends it with `--wrapped`),
 and the guard rails: commit only that session's own files, board file explicitly
 forbidden (the coordinator is its only writer), no pushes, no outward sends. Below
 75% certainty whose a dirty file is: verify (mtime, transcript grep) or leave it
