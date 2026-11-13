@@ -166,7 +166,7 @@ scope is the one session outside it you may message directly.
 each ask with your default — not a play-by-play of what a sub-agent is doing, and no
 "nothing new" notices. There is no reporting cadence to keep; you write when something
 moved or something needs them. Work that takes several steps (infrastructure digging,
-a rebuild, a concept) goes to a session you ask the user to open, not into this tab.
+a rebuild, a concept) goes to a lane session ("One lane = one session" below), not into this tab.
 
 **Sub-agents write long results to a file and return you at most ten lines.** Say so in
 every sub-agent prompt with a `Report file: <absolute path>` line (the
@@ -471,8 +471,10 @@ coordinator to take for a lane without asking; say in your next message which se
 which lane. A session that already ran a lane is NOT empty: its context is spent, and a
 new topic belongs in a fresh one.
 
-**One lane = one session.** A new lane gets a fresh session: ask your user to open one and
-name the model it should run — for them that is one click. Never stack a second lane silently
+**One lane = one session.** A new lane gets a fresh session on the model it should run. Start the
+lanes your user ordered yourself where the host lets you (in T3 Code: `t3_thread_launch`) and name
+the lane in your next message; only where you cannot start a session (a plain terminal) ask your
+user to open one and name the model, for them one click. Never stack a second lane silently
 into a running session. The one exception is around half an hour of silence from your user,
 and then only for safe, reversible work: a second lane in a session that already has one, or
 sub-agents in your own.
@@ -536,8 +538,8 @@ a grep matches every currently working session too.
 Never reuse a wrapped session for a new lane — the wrap already told your user that session
 is finished.
 
-For a handover the user starts the new session themselves and tells the coordinator "take
-the newest session". The coordinator finds it through the session registry instead of by
+For a handover where the coordinator cannot start a session (a plain terminal), the user starts
+the new session themselves and tells the coordinator "take the newest session". The coordinator finds it through the session registry instead of by
 name:
 
 ```bash

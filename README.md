@@ -29,8 +29,9 @@ drawn in detail under [How the roles work](#how-the-roles-work).
 3. You open those tabs — one lane per session. From there it runs by itself: workers build in their own worktrees, review themselves, and report to the coordinator, not to you.
 4. Your next move only comes when it reports back: which tabs to close, whether it needs another session, and the one or two things only you can decide.
 
-The empty cell in the top lane is the point: the coordinator cannot open a tab, and that is
-the only thing it needs you for.
+The empty cell in the top lane is the point: in a terminal the coordinator cannot open a tab,
+and that is the only thing it needs you for. Under T3 Code it can, so it starts the lanes you
+ordered itself (`t3_thread_launch`) and step 3 is gone.
 
 **Not every job needs a worker tab.** The coordinator can also run work through its own
 sub-agents (the Agent tool), and you can tell it to: "do that with sub-agents, no new session".

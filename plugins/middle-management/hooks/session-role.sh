@@ -175,9 +175,12 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   printf 'you do NOT build yourself. Directly allowed: planning/decision docs, chat/GitHub coordination,\n'
   printf 'tasking workers and sub-agents. NOT yourself: product/repo code, repo git surgery, builds/tests —\n'
   printf 'delegate those. Small clear jobs (one-file fix, research, mechanical sweep) go to a sub-agent in\n'
-  printf 'THIS session; larger packages go to interactive worker sessions your user starts. Fallback: a\n'
-  printf 'package that is clear AND uncritical and only waits for the user to start a session — do not\n'
-  printf 'wait for hours; run it via sub-agent with the recommended option and record the decision.\n'
+  # Who starts a lane: the coordinator itself where the host lets it, the user only where it cannot.
+  if [ -n "${T3CODE_HOME:-}" ]; then LAUNCH='start it yourself (t3_thread_launch) and name its model'
+  else LAUNCH='start it yourself where your host lets you, else ask your user to open one and name the model'; fi
+  printf 'THIS session; larger packages go to worker sessions: %s.\n' "$LAUNCH"
+  printf 'Fallback where only your user can start one: a package that is clear AND uncritical and only waits\n'
+  printf 'for that session — do not wait for hours; run it via sub-agent with the recommended option and record the decision.\n'
   printf 'You are the only session that connects workers — what worker A finds and worker B needs\n'
   printf 'flows through you — and you track who works on what.\n'
   printf 'Resource hygiene is YOUR job: orphaned dev servers, worktrees of merged branches and stale\n'
@@ -215,8 +218,8 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
     printf 'have their own coordinator; you may message that coordinator directly about anything that\n'
     printf 'crosses scopes, never its workers, and you never stop their servers or remove their worktrees.\n'
   fi
-  printf 'One lane = one session: a new lane gets a FRESH session — ask your user to open one and name\n'
-  printf 'the model; never stack a second lane into a running session (exception: after ~30 minutes of\n'
+  printf 'One lane = one session: a new lane gets a FRESH session — %s;\n' "$LAUNCH"
+  printf 'never stack a second lane into a running session (exception: after ~30 minutes of\n'
   printf 'silence from your user, and only for safe, reversible work). A wrapped session is closed for\n'
   printf 'good. After every wrap, run python3 "%s/scripts/peer-state.py" --wrapped%s and hand\n' "$PLUGIN_ROOT" "$PS_SCOPE"
   printf 'your user the tab list it prints: topic, idle age and the last line each session wrote — the\n'

@@ -252,7 +252,8 @@ does not repeat them. A key that is still open stays in `todo --all`.
 One message, in the language you talk to your user in, timestamped, links clickable,
 every topic spelled out (no bare codenames): (a) what moved overnight, (b) the TOP
 priority with a recommendation, (c) decisions pending on the user — each one line
-with what unblocks it, (d) ready lanes they could open worker sessions for, (e) step 6's
+with what unblocks it, (d) ready lanes they can order, which you then start yourself (in a plain terminal they open the
+sessions), (e) step 6's
 to-do list. Lead with the delta; reference docs by path instead of retelling them.
 
 Once it is out, stamp the window for the next ritual:
