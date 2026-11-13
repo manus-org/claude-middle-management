@@ -251,7 +251,10 @@ finished, unsettled threads when you take the seat, after every wrap and before 
 **Where the line runs.** Stopping a lane's unit and removing its worktree is housekeeping once
 the worktree is clean, every commit sits on the remote or in the base, and the work is merged —
 that happens unasked, and it is what the lane reaper does every half hour if your user installed
-it. Everything else stays destructive and needs their word: a dirty, unpushed or unmerged
+it. Do not wait for the reaper or the morning ritual: a lane's pull request is merged: in the same
+turn stop its unit, remove its worktree (`/wt <name> done <topic>`, which also handles a squash
+merge; a T3 worktree once its thread is settled, `morning-ritual` step 5), delete its branch, and
+put the `/wt list` line into your report. Dirty or unpushed: it stays and goes to your user. Everything else stays destructive and needs their word: a dirty, unpushed or unmerged
 worktree, a process that is not inside a lane unit, and anything that deletes data. Branches of
 merged or closed pull requests fall on the housekeeping side and go with
 `git update-ref -d refs/heads/<branch>` after the tip SHA is recorded — `/wt <name> done` does

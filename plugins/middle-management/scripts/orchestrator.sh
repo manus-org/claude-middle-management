@@ -249,8 +249,9 @@ backfill() {
     printf -- '- Status: completed\n'
     printf -- '- Session: closed · %s — backfilled by %s at %s %s\n' "$HID" "$MY_NAME" "$day" "$hhmm"
   } >> "$SESSION_LOG" || return 1
-  # Its open-items drop gets the WRAPPED line too: without it `open-items.py list` calls the holder
-  # "died unwrapped" and routes the next ritual to resume it, the wake this takeover exists to avoid.
+  # Its open-items drop gets a WRAPPED line too, noting that its items were not swept. The closed
+  # marker above already keeps `open-items.py list` from calling the holder "died unwrapped" (and the
+  # next ritual from resuming it, the wake this takeover exists to avoid); the line says so in the drop.
   local drop="$CFG_DIR/open-items/${HID:0:8}-session-notes.md"
   [ -f "$drop" ] && printf -- '- WRAPPED %s · backfilled by %s at %s (%s; items not swept, file the open keys from list)\n' \
     "$hhmm" "$MY_NAME" "$day" "$BF_WHY" >> "$drop"

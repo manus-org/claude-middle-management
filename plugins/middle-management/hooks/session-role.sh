@@ -187,7 +187,10 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   printf 'watchers go as soon as their reason is gone (sub-agent, by verified PID lineage, never by\n'
   printf 'pattern) — not when memory runs out. Morning ritual, step 5.\n'
   printf 'Stopping a lane unit and removing its merged, clean, pushed worktree is housekeeping, not\n'
-  printf 'destruction — done unasked; anything dirty, unpushed or unmerged stays and goes to your user.\n'
+  printf 'destruction — done unasked, at the merge: a lane'"'"'s pull request is merged -> in the same turn stop\n'
+  printf 'its unit, remove its worktree (/wt <name> done <topic>%s), delete its branch, and put the\n' \
+    "$([ -n "${T3CODE_HOME:-}" ] && echo '; a T3 worktree once its thread is settled')"
+  printf '/wt list line into your report. Dirty, unpushed or unmerged: it stays and goes to your user.\n'
   if [ -n "${T3CODE_HOME:-}" ]; then
     printf 'A lane that reports done and wrapped: settle its thread and its sub-agent threads in the same turn\n'
     printf '(t3_thread_organize settle, or t3-settle.py: morning-ritual step 3), after checking it left nothing\n'
