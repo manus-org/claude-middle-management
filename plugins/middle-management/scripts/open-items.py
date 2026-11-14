@@ -13,8 +13,10 @@ Usage:
   open-items.py add --done W<n>|<sid8>-W<n> "<evidence: commit, live, the user's answer>"
   open-items.py add --wrapped          the wrap's last line, also when nothing is open
   open-items.py list                   every item not on the board yet, plus sessions that died unwrapped
-                                       (a gone T3 session with no closed marker reads "asleep in T3
-                                       thread <id>": wake it, never resume it headless)
+                                       (a gone session counts as wrapped with a `- WRAPPED` line in its
+                                       drop OR a `Session: closed · <id>` marker in the session log;
+                                       a gone T3 session with neither reads "asleep in T3 thread <id>":
+                                       wake it, never resume it headless)
   open-items.py count                  one banner line, or nothing when there is nothing to file
   open-items.py done <file>            delete a drop file: refused unless every open key is on the
                                        board AND the session is gone
@@ -27,8 +29,10 @@ session, <sid8>-session-notes.md. Board: the `board` key of <config dir>/middle-
 through symlinks. "Filed" = the item's whole key <sid8>-W<n> appears anywhere in the board file.
 Own session: $CLAUDE_CODE_SESSION_ID, else the registry entry of the nearest ancestor process (the
 wrap skill's step 0 walk). Liveness is peer-state.py's is_live, with its PID-reuse guard.
-T3 Code (`list`): a gone, unwrapped session that a T3 provider log or a coordinator sidecar names and
-that has no `Session: closed` marker is asleep, not dead (peer-state.py's t3_threads, sidecar_sids,
+Wrapped (`list`): the drop's `- WRAPPED` line after its last item, or the wrap skill's
+`Session: closed · <id>` marker in the session log (a wrap that never ran `add --wrapped`).
+T3 Code (`list`): a gone, unwrapped session that a T3 provider log or a coordinator sidecar names is
+asleep, not dead (peer-state.py's t3_threads, sidecar_sids,
 closed_markers; env T3CODE_HOME, MM_SESSION_LOG as there).
 To-dos: a board line `- <key> · owner: <owner> · <text>` (the drop line as `list` prints it) wins
 over the drop file's line; an item is closed by its drop file's `- W<n> done` or by `<key> done`
@@ -284,6 +288,9 @@ def list_():
         except (OSError, ValueError) as e:
             print("%s · unreadable (%s), fix or remove it by hand" % (f, type(e).__name__))
             continue
+        # the wrap skill's closed marker counts as wrapped too: a wrap that skipped `add --wrapped`
+        # must not read "died unwrapped" and get resumed for a backfill it does not need
+        wrapped = wrapped or (gone and sid8_of(f) in t3_index()[2])
         asleep = t3_asleep(sid8_of(f)) if gone and not wrapped else None
         if asleep:
             # never `claude --resume`: T3 owns that session, a headless run would be a second writer

@@ -10,6 +10,17 @@
             "statusMessage": "middle-management: refresh unit copies"
           }
         ]
+      },
+      {
+        "matcher": "compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-role.sh\"",
+            "timeout": 10,
+            "statusMessage": "middle-management: session role"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

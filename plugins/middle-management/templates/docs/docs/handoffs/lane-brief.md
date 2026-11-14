@@ -19,6 +19,9 @@ own marker for a deliberate shortcut). Every line of this brief agrees with them
 
 ## Build
 
+Before you review or change anything, fetch and read its current state; findings from an older
+state are re-checked against the new one before they are built or posted.
+
 Each async path the plan names (race, retry, late or stale answer, duplicate job, per-call
 timeout) gets a test.
 
@@ -33,7 +36,8 @@ hook manager's skip switch.
 
 ## Review
 
-The review-loop skill runs until a CLEAN round. The builder's deviation list sits in a file the
+The review-loop skill runs until a CLEAN round (no medium or heavy finding); one or two rounds
+are normal, low findings become open points. The builder's deviation list sits in a file the
 reviewer opens only after its own walk is written.
 
 ## Before the PR

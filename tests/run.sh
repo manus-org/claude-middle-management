@@ -256,11 +256,62 @@ assert_has "the worker gets the same instruction, keyed by its own id" "- Sessio
 assert_has "the worker is pointed at the same skill" "(middle-management:wrap)" "$OUT"
 rm -f "$H/logs/session-log.md"
 printf '{"sessionLog":"%s/elsewhere/log.md"}' "$H" > "$H/.claude/middle-management.json"
+rm -f "$H/.claude/state/session-role/sess-alpha"   # same full text as two calls up: force it again
 OUT="$(role "$H" "sess-alpha")"
 assert_has "a configured path that does not exist yet still gets the instruction" "- Session: closed · sess-alpha" "$OUT"
 assert_lacks "a chosen path is never reported as missing" "No session log yet" "$OUT"
 assert_lacks "sessionLog does not make the config invalid" "is invalid" "$OUT"
 rm -f "$H/.claude/middle-management.json"
+kill "$PEER" 2>/dev/null
+
+say "== full text once per session and role, a short hint after (0.19.0) =="
+H="$(new_home)"; mkdir -p "$H/logs"; : > "$H/logs/session-log.md"; PEER="$(add_peer "$H")"
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$ORCH" claim >/dev/null 2>&1
+ST="$H/.claude/state/session-role"
+OUT="$(role "$H" sess-alpha)"
+assert_has "(a) first message -> the full coordinator text" "RE-WAKE checklist" "$OUT"
+assert_has "...with its tail" "Close this tab." "$OUT"
+[ -s "$ST/sess-alpha" ] && ok "...and a stamp for this session" || bad "...and a stamp for this session" "$(ls -la "$ST" 2>&1)"
+OUT="$(role "$H" sess-alpha)"
+assert_lacks "(b) second message -> not the full text" "RE-WAKE checklist" "$OUT"
+assert_has "...the role line" 'Session role: ORCHESTRATOR ("alpha", by marker). You plan with your user and route the work; you do not build' "$OUT"
+assert_has "...the event duties in one line" "At events: a lane's pull request is merged → clean up its lane in the same turn; a task starts → check your tokens." "$OUT"
+assert_lacks "...no settle duty outside T3" "settle" "$OUT"
+assert_has "...where the full rules are" "Full rules: skill middle-management:middle-management" "$OUT"
+assert_has "...the write-now habit" "$P/scripts/open-items.py\" add." "$OUT"
+assert_has "...the dynamic worker list stays" "Current workers: beta" "$OUT"
+assert_lacks "...no closed-marker line" "Session: closed" "$OUT"
+N=$(printf '%s\n' "$OUT" | grep -c .); [ "$N" -le 5 ] && ok "...at most five lines ($N)" || bad "...at most five lines" "$OUT"
+OUT="$(role "$H" sess-beta)"
+assert_has "(a) a worker's first message -> the full worker text" "resources released" "$OUT"
+OUT="$(role "$H" sess-beta)"
+assert_lacks "(b) its second -> the short hint" "resources released" "$OUT"
+assert_has "...the role line" 'Session role: WORKER ("beta"). The coordinator is "alpha".' "$OUT"
+assert_has "...the report channel" 'Peer messages go ONLY to "alpha", never to other workers' "$OUT"
+assert_has "...the sub-orchestrator line" "SUB-ORCHESTRATOR of your lane" "$OUT"
+N=$(printf '%s\n' "$OUT" | grep -c .); [ "$N" -le 5 ] && ok "...at most five lines ($N)" || bad "...at most five lines" "$OUT"
+printf 'sess-beta\n' > "$H/.claude/state/orchestrator"   # the seat moves: both roles change
+OUT="$(role "$H" sess-beta)"
+assert_has "(c) role change -> the new coordinator gets the full text" "RE-WAKE checklist" "$OUT"
+OUT="$(role "$H" sess-alpha)"
+assert_has "...and the former one the full worker text" "resources released" "$OUT"
+assert_has "...then short again" "Full rules: skill" "$(role "$H" sess-alpha)"
+OUT="$(printf '{"session_id":"sess-alpha","source":"compact"}' | HOME="$H" CLAUDE_CONFIG_DIR="" bash "$ROLE" 2>&1)"
+assert_has "(c) SessionStart after a compaction -> the full text" "resources released" "$OUT"
+assert_has "...short on the next message" "Full rules: skill" "$(role "$H" sess-alpha)"
+jq -e '.hooks.SessionStart[] | select(.matcher == "compact|clear") | .hooks[] | select(.command | endswith("hooks/session-role.sh\""))' "$P/hooks/hooks.json" >/dev/null \
+  && ok "...registered in hooks.json for compact|clear" || bad "...registered in hooks.json for compact|clear"
+printf '{"board":"%s/board.md"}' "$H" > "$H/.claude/middle-management.json"
+assert_has "a config change that rewrites the text -> full again" "sole writer of the board" "$(role "$H" sess-beta)"
+rm -f "$H/.claude/middle-management.json"
+rm -rf "$ST"; : > "$ST"   # (d) the stamp dir cannot be created
+role "$H" sess-alpha >/dev/null
+assert_has "(d) stamp not writable -> full text every time" "resources released" "$(role "$H" sess-alpha)"
+rm -f "$ST"
+OUT="$(printf '{"session_id":"../escape"}' | HOME="$H" CLAUDE_CONFIG_DIR="" bash "$ROLE" 2>&1)"
+[ ! -e "$H/.claude/state/escape" ] && [ ! -e "$ST/../escape" ] && ok "(d) a session id that is no plain name writes no stamp" || bad "(d) a session id that is no plain name writes no stamp"
+role "$H" sess-alpha >/dev/null
+assert_has "(d) MM_ROLE_FULL=1 -> the full text" "resources released" "$(printf '{"session_id":"sess-alpha"}' | HOME="$H" CLAUDE_CONFIG_DIR="" MM_ROLE_FULL=1 bash "$ROLE" 2>&1)"
 kill "$PEER" 2>/dev/null
 
 say "== the open-items drop in the banner =="
@@ -912,6 +963,45 @@ git -C "$W/app" fetch -q origin
 ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app landed ' || true)"
 assert_has "a pushed lane whose work landed in the base reads merged" " clean yes " "$ROW"
 HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done landed >/dev/null 2>&1
+# squash merge: the lane's commit is no ancestor of the base and its upstream lacks HEAD, but
+# every file it changed has the same content on the base -> merged, never unpushed
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app new squashed >/dev/null 2>&1
+SQ="$W/.worktrees-app/squashed"
+printf 'sq\n' > "$SQ/sq.txt"; printf 'gone\n' > "$SQ/old.txt"
+git -C "$SQ" add sq.txt old.txt && git -C "$SQ" -c user.email=t@t -c user.name=t commit -q -m sq1
+git -C "$SQ" rm -q old.txt && git -C "$SQ" -c user.email=t@t -c user.name=t commit -q -m sq2
+SQC=$(git -C "$SQ" -c user.email=t@t -c user.name=t commit-tree "$(git -C "$SQ" rev-parse 'HEAD^{tree}')" -p origin/dev -m 'squash (#1)')
+git -C "$SQ" push -q origin "$SQC:refs/heads/dev" 2>/dev/null; git -C "$W/app" fetch -q origin
+git -C "$SQ" merge-base --is-ancestor HEAD origin/dev && bad "fixture: the squash lane is no ancestor of the base" || ok "fixture: the squash lane is no ancestor of the base"
+ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app squashed ' || true)"
+assert_has "a squash-merged lane (content on the base) reads clean and merged, not unpushed" " clean yes " "$ROW"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" MM_WT="$WT" MM_REAPER_NO_NOTIFY=1 bash "$P/scripts/lane-reaper.sh" --dry-run 2>&1)"
+assert_has "the reaper would remove the squash-merged lane" "merged: app-squashed" "$OUT"
+printf 'x' > "$SQ/dirt.txt"
+ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app squashed ' || true)"
+assert_has "a squash-merged lane with a dirty tree still reads dirty" " dirty yes " "$ROW"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done squashed 2>&1)"; RC=$?
+assert_rc "wt done on a dirty squash-merged lane -> refused" 1 "$RC"
+mv "$SQ/dirt.txt" "$W/dirt-moved.txt"
+# a second lane whose file the base changed again after the squash: content differs -> unpushed
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app new resquash >/dev/null 2>&1
+RQ="$W/.worktrees-app/resquash"
+printf 'v1\n' > "$RQ/rq.txt"; git -C "$RQ" add rq.txt && git -C "$RQ" -c user.email=t@t -c user.name=t commit -q -m rq
+RQC=$(git -C "$RQ" -c user.email=t@t -c user.name=t commit-tree "$(git -C "$RQ" rev-parse 'HEAD^{tree}')" -p origin/dev -m 'squash (#2)')
+RQT=$(printf 'v2\n' | git -C "$RQ" hash-object -w --stdin)
+RQTREE=$(git -C "$RQ" ls-tree "$RQC" | sed "s/[0-9a-f]\{40\}\trq.txt\$/$RQT\trq.txt/" | git -C "$RQ" mktree)
+RQC2=$(git -C "$RQ" -c user.email=t@t -c user.name=t commit-tree "$RQTREE" -p "$RQC" -m 'later edit')
+git -C "$RQ" push -q origin "$RQC2:refs/heads/dev" 2>/dev/null; git -C "$W/app" fetch -q origin
+ROW="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app list 2>&1 | grep '^app resquash ' || true)"
+assert_has "base changed the lane's file again after the squash -> unpushed, not merged (safe side)" " unpushed no " "$ROW"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done resquash 2>&1)"; RC=$?
+assert_rc "...and wt done refuses it" 1 "$RC"
+OUT="$(HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done squashed 2>&1)"; RC=$?
+assert_rc "wt done on a clean squash-merged lane succeeds" 0 "$RC"
+assert_has "...and deletes its branch as merged" "branch squashed deleted" "$OUT"
+git -C "$RQ" -c user.email=t@t -c user.name=t commit -q --allow-empty -m keep
+git -C "$RQ" push -q -u origin resquash 2>/dev/null
+HOME="$H" CLAUDE_CONFIG_DIR="" bash "$WT" app done resquash >/dev/null 2>&1
 # run: refused without a systemd user manager, and refused without a command
 NOSD="$(mktemp -d -p "$TMPBASE")"; ln -s /usr/bin/* /bin/* "$NOSD"/ 2>/dev/null
 rm -f "$NOSD/systemctl" "$NOSD/systemd-run"
@@ -1005,6 +1095,8 @@ assert_empty "config without the key -> gate silent" "" "$(rlg Write "$HANDOFF")
 printf '{"reviewLoopGate":true,"protectedCheckouts":[]}' > "$H/.claude/middle-management.json"
 assert_has "handoff write without a review -> denied" '"deny"' "$(rlg Write "$HANDOFF")"
 assert_has "the denial names the skill" "review-loop" "$(rlg Write "$HANDOFF")"
+assert_has "the denial states the rounds-by-weight rule" "re-reviewed only after a medium or heavy finding" "$(rlg Write "$HANDOFF")"
+assert_lacks "...not the old flat cap" "at most 4 rounds" "$(rlg Write "$HANDOFF")"
 assert_has "a long plan without a review -> denied" '"deny"' "$(rlg ExitPlanMode "$LONGPLAN")"
 assert_empty "a two-line plan -> passes" "" "$(rlg ExitPlanMode '{"plan":"fix the typo"}')"
 assert_empty "any other file -> passes" "" "$(rlg Write '{"file_path":"/x/docs/notes.md","content":"x"}')"
@@ -1252,10 +1344,21 @@ if git -C "$ROOT" archive 8d41d58 plugins/middle-management 2>/dev/null | tar -x
   mine "$H" "$H/ad"; G0B="$(add_peer "$H" beta interactive "$H/ad")"; G0G="$(add_peer "$H" gamma)"
   sleep 300 >/dev/null 2>&1 </dev/null & G0N=$!
   printf '{"pid":%s,"sessionId":"sess-nameless","kind":"interactive","cwd":""}\n' "$G0N" > "$H/.claude/sessions/$G0N.json"
+  # 0.19.0 rewrote two coordinator passages on purpose (who starts a lane; cleanup at the merge).
+  # The old output gets exactly those passages swapped for the new ones, so every other byte still
+  # has to match; a passage that no longer matches leaves the old text in place and fails loudly.
+  up019() { python3 -c 'import sys
+s = sys.stdin.read()
+for a, b in zip(sys.argv[1::2], sys.argv[2::2]): s = s.replace(a, b)
+sys.stdout.write(s)' \
+    $'larger packages go to interactive worker sessions your user starts. Fallback: a\npackage that is clear AND uncritical and only waits for the user to start a session — do not\nwait for hours; run it via sub-agent with the recommended option and record the decision.' \
+    $'larger packages go to worker sessions: start it yourself where your host lets you, else ask your user to open one and name the model.\nFallback where only your user can start one: a package that is clear AND uncritical and only waits\nfor that session — do not wait for hours; run it via sub-agent with the recommended option and record the decision.' \
+    $'destruction — done unasked; anything dirty, unpushed or unmerged stays and goes to your user.\nOne lane = one session: a new lane gets a FRESH session — ask your user to open one and name\nthe model; never stack' \
+    $'destruction — done unasked, at the merge: a lane\'s pull request is merged -> in the same turn stop\nits unit, remove its worktree (/wt <name> done <topic>), delete its branch, and put the\n/wt list line into your report. Dirty, unpushed or unmerged: it stays and goes to your user.\nOne lane = one session: a new lane gets a FRESH session — start it yourself where your host lets you, else ask your user to open one and name the model;\nnever stack'; }
   golden() {  # golden <label> <sessionId>: old and new hook, same home, same stdin
     local old
     new="$(printf '{"session_id":"%s"}' "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" bash "$ROLE" 2>&1)"
-    old="$(printf '{"session_id":"%s"}' "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$OP" bash "$OP/hooks/session-role.sh" 2>&1 | sed "s|$OP|$P|g")"
+    old="$(printf '{"session_id":"%s"}' "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$OP" bash "$OP/hooks/session-role.sh" 2>&1 | sed "s|$OP|$P|g" | up019)"
     [ "$new" = "$old" ] && ok "S0 byte-identical to upstream 0.9.0: $1" || bad "S0 byte-identical to upstream 0.9.0: $1" "$(diff <(printf '%s\n' "$old") <(printf '%s\n' "$new"))"
   }
   ostatus() { HOME="$H" CLAUDE_CONFIG_DIR="" bash "$1" status 2>&1 | sed "s|$OP|$P|g"; }
@@ -1270,8 +1373,8 @@ if git -C "$ROOT" archive 8d41d58 plugins/middle-management 2>/dev/null | tar -x
   assert_has "S0 ...a full worker banner was compared" 'Session role: WORKER ("beta")' "$new"
   golden "nameless worker" sess-nameless
   [ "$(ostatus "$ORCH")" = "$(ostatus "$OP/scripts/orchestrator.sh")" ] && ok "S0 status byte-identical: holder" || bad "S0 status byte-identical: holder"
-  [ "$(find "$H/.claude/state" | sort)" = "$(printf '%s\n' "$H/.claude/state" "$H/.claude/state/orchestrator")" ] \
-    && ok "S0 state dir holds the marker only" || bad "S0 state dir holds the marker only" "$(find "$H/.claude/state")"
+  [ "$(find "$H/.claude/state" -path "$H/.claude/state/session-role" -prune -o -print | sort)" = "$(printf '%s\n' "$H/.claude/state" "$H/.claude/state/orchestrator")" ] \
+    && ok "S0 state dir holds the marker (and the 0.19.0 role stamps) only" || bad "S0 state dir holds the marker (and the 0.19.0 role stamps) only" "$(find "$H/.claude/state")"
   kill "$G0B" "$G0G" "$G0N" 2>/dev/null
 else
   say "  skip- S0 golden diff: commit 8d41d58 is not in this clone"

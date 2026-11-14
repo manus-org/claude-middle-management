@@ -47,8 +47,8 @@ asleep in its own T3 thread. Before step 1, in this order:
    `orchestrator.sh claim --thread <currentThreadId> --morning` (`/orchestrator`, "T3 Code" item 7).
    It works only with the user's standing word in the config key `morningTakeover`; a `REFUSED` or
    `BUSY` ends the ritual here: say what the script printed, in this thread, and wait for your user.
-2. Report task + `t3-bind`, as `/orchestrator` "T3 Code" items 2-3 say. When the claim printed a
-   `Coordinator model:` line, compare your model with it first (`/orchestrator` "T3 Code" item 4).
+2. Report task + `t3-bind`, as `/orchestrator` "T3 Code" items 2-3 say. The claim prints a
+   `Coordinator model:` line (unless the config turned it off): compare your model with it first (`/orchestrator` "T3 Code" item 4).
 3. Settle the predecessor the claim named: `delete_scheduled_task <its report task>` (the id is in
    the `SETTLE` line and in `orchestrator.sh status`), read what it left off disk
    (`peer-state.py --session-id <its id>`, `open-items.py list`), then settle its thread by the
@@ -126,7 +126,7 @@ backfill** (never for a T3 session, see above): `claude --resume <sessionId> -p 
 (coordinator, date): …"`, sequential, in the background. The backfill prompt names:
 why (session died), what is already recorded on the board (so work is NOT
 repeated), the owed artifacts, its open-items drop file (`open-items.py list` marks
-it "died unwrapped"; the wrap adds what is missing there and ends it with `--wrapped`),
+it "died unwrapped" when it has neither a `- WRAPPED` line nor a closed marker; the wrap adds what is missing there and ends it with `--wrapped`),
 and the guard rails: commit only that session's own files, board file explicitly
 forbidden (the coordinator is its only writer), no pushes, no outward sends. Below
 75% certainty whose a dirty file is: verify (mtime, transcript grep) or leave it
@@ -252,7 +252,8 @@ does not repeat them. A key that is still open stays in `todo --all`.
 One message, in the language you talk to your user in, timestamped, links clickable,
 every topic spelled out (no bare codenames): (a) what moved overnight, (b) the TOP
 priority with a recommendation, (c) decisions pending on the user — each one line
-with what unblocks it, (d) ready lanes they could open worker sessions for, (e) step 6's
+with what unblocks it, (d) ready lanes they can order, which you then start yourself (in a plain terminal they open the
+sessions), (e) step 6's
 to-do list. Lead with the delta; reference docs by path instead of retelling them.
 
 Once it is out, stamp the window for the next ritual:

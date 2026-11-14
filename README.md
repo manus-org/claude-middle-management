@@ -29,8 +29,9 @@ drawn in detail under [How the roles work](#how-the-roles-work).
 3. You open those tabs — one lane per session. From there it runs by itself: workers build in their own worktrees, review themselves, and report to the coordinator, not to you.
 4. Your next move only comes when it reports back: which tabs to close, whether it needs another session, and the one or two things only you can decide.
 
-The empty cell in the top lane is the point: the coordinator cannot open a tab, and that is
-the only thing it needs you for.
+The empty cell in the top lane is the point: in a terminal the coordinator cannot open a tab,
+and that is the only thing it needs you for. Under T3 Code it can, so it starts the lanes you
+ordered itself (`t3_thread_launch`) and step 3 is gone.
 
 **Not every job needs a worker tab.** The coordinator can also run work through its own
 sub-agents (the Agent tool), and you can tell it to: "do that with sub-agents, no new session".
@@ -90,10 +91,10 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 
 | Piece | Kind | What it does |
 |---|---|---|
-| Session roles | UserPromptSubmit hook | Tells every session, on every message, whether it is the ORCHESTRATOR or a WORKER — including the operative rules for that role. Silent when no coordinator exists. |
+| Session roles | UserPromptSubmit hook (+ SessionStart after a compaction) | Tells every session, on every message, whether it is the ORCHESTRATOR or a WORKER. The operative rules for that role come in full at the first message, after a role change and after a compaction; every other message gets a short hint of three to five lines plus the lines that change per message. Silent when no coordinator exists. |
 | `/orchestrator claim\|release\|status` | command | Appoints this session as coordinator (marker file), hands the seat back, or shows who holds it. |
 | Worktree guard | PreToolUse hook | Denies direct edits inside configured main checkouts and points to the worktree workflow instead. Dormant until you configure repos. |
-| `/wt <name> new\|list\|run\|stop\|hold\|done` | command | Creates/lists/removes per-topic worktrees with the branch based on your configured base branch, deps installed. `done` refuses while the worktree is dirty, unpushed or any live process sits inside it, and deletes the branch (via `update-ref`, recording the tip) once it is merged into the base — a squash-merged branch is kept, since it is no ancestor of the base. |
+| `/wt <name> new\|list\|run\|stop\|hold\|done` | command | Creates/lists/removes per-topic worktrees with the branch based on your configured base branch, deps installed. `done` refuses while the worktree is dirty, unpushed or any live process sits inside it, and deletes the branch (via `update-ref`, recording the tip) once it is merged into the base. A squash-merged branch counts as merged when every file it changed has the same content on the base (ancestry proves nothing there); if the base changed those files again afterwards it reads unpushed and is kept. |
 | `/wt <name> run\|stop <topic>`, `/wt cap` | command (Linux) | Starts the lane's dev server as a memory-capped systemd user unit `wt-<name>-<topic>` and stops it again, waiting for the cgroup to be empty rather than believing "inactive"; `cap` caps one heavy build or test run in the foreground. At most `maxUnits` lane units at a time. |
 | `/wt <name> hold\|chown <topic>`, `/wt list` | command | `hold` keeps the reaper off a lane that has to stay up; `chown` hands a lane to another session so it does not go ownerless. `list` is the one view: one parseable row per lane with its unit, owner, uptime, memory, hold, git state and pull-request state. |
 | Long-runners as units | PreToolUse hook (optional, Linux) | Rewrites a hand-started `next dev`, `vite`, `<pm> run dev` into `wt run`, and `bun test`, `next build`, `playwright test`, `<pm> run build` into `wt cap`; refuses a dev server inside a compound command with the line to copy. Off unless `longRunningAsUnit: true`. |
@@ -102,7 +103,7 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 | `/middle-management-setup` | command | Shows the current config, then interviews you and writes/edits it — with validation. |
 | `middle-management` skill | skill | Extended reference: appointment, handover between sessions, troubleshooting. |
 | `wrap` skill | skill | The end-of-session routine: touched docs, the session-log entry with its `Session: closed · <id>` marker, open items, the closing lines. The tab list and the stale-seat takeover both read what it writes — see [The session log](#the-session-log). Addressed `/middle-management:wrap`; a personal `~/.claude/skills/wrap` wins the bare `/wrap`. |
-| `review-loop` skill | skill | The loop every deliverable goes through before it is handed on as finished: a fresh-context reviewer checks it against its acceptance criteria and must prove each finding against the code or doc, the session fixes what was confirmed, a new reviewer runs again, until a round finds nothing. Hard cap 4 rounds, then the open findings are reported and nothing is called clean. Opus at xhigh by default, Fable for money, security, data and the customer path. |
+| `review-loop` skill | skill | The loop every deliverable goes through before it is handed on as finished: a fresh-context reviewer checks it against its acceptance criteria and must prove each finding against the code or doc, the session fixes what was confirmed, a new reviewer runs again only after a medium or heavy finding. Every finding carries a weight (low, medium, heavy) and what breaks for whom; one or two rounds are normal, low findings never cause another round and are listed as open points. Hard cap 3 rounds (4 for access and security, data loss, published interfaces and code your team does not own), then the open findings are reported and nothing is called clean. Opus at xhigh by default, Fable for money, security, data and the customer path. |
 | Review gate | PreToolUse hook (optional) | Holds ExitPlanMode on a real plan and a Write to any `<date>_handoff-*.md` until the review loop ran in this session within the hour. Off unless `reviewLoopGate: true`. |
 | PR gate | PreToolUse hook (optional) | Holds `gh pr create` until `pr-gate.md` beside the `--body-file` has every box ticked; `MM_PR_GATE=off` overrides. Off unless `prGate: true`. |
 | Open-items drop | script + banner line | Every session writes each "for later" item the moment it appears, with `scripts/open-items.py add`, to its own file under `<config-dir>/open-items/`; the coordinator's banner counts what is not on the board yet, `list` shows it, and `done` deletes a file only once every key is on the board and the session is gone. A to-do no longer dies with a session that never wrapped, or with a coordinator hand-over. |
@@ -132,8 +133,8 @@ changing hands · red = never.*
 
 1. You tell one session it is the coordinator.
 2. `claim` writes that session's id into the marker.
-3. Four hooks announce the role in every session, on every message — or say nothing when no seat is taken.
-4. You start every worker session yourself, by hand. One lane = one session; a new lane gets a fresh session with the model named.
+3. Four hooks announce the role in every session, on every message (the full rules once, a short hint after) — or say nothing when no seat is taken.
+4. Every lane gets its own fresh session with the model named: under T3 Code the coordinator starts the ones you ordered (`t3_thread_launch`), in a plain terminal you start them.
 5. The coordinator plans with you and writes a handoff doc.
 6. It sends the worker the doc's *path*, never the content — and only to live sessions: a session idle for an hour re-pays its whole context when you wake it.
 7. The worker reads the doc off disk.
@@ -152,7 +153,11 @@ changing hands · red = never.*
    `/orchestrator claim`, which records its session id in
    `<config-dir>/state/orchestrator` (one marker per scope, see [Scopes](#scopes)).
 2. On every user message, the role hook reads that marker plus Claude Code's live
-   session registry and announces the session's role with its contract. Workers talk
+   session registry and announces the session's role: the full contract at the session's
+   first message, after a role change and after a compaction (a SessionStart hook), a short
+   hint of three to five lines on every other message. A stamp per session under
+   `<config dir>/state/session-role/` remembers what was printed; if it cannot be read or
+   written, or with `MM_ROLE_FULL=1` set, every message gets the full contract. Workers talk
    ONLY to the coordinator; the coordinator plans, routes, and does not build.
 3. `release` (in the coordinating session) turns the regime off; with no living
    coordinator the hook is silent and every session works standalone. When the
@@ -258,14 +263,22 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
 - `quietReports` (optional, 0.15.0, default off): `{"enabled": true, "fallbackMin": 20,
   "debounceMin": 10}` sends worker reports into an awake T3 coordinator without a turn each.
   Machine-wide: it switches the coordinator of every scope. See [Quiet reports](#quiet-reports).
-- `coordinatorModelRule` (optional, 0.18.0, default none): the model the coordinator should run
-  on, in the user's words. Every successful `claim` (also `--morning`) prints it in one line that
-  tells the session to compare its model with it and, on a better match, to tell the user and
-  recreate its report task there. Absent or blank prints nothing.
+- `coordinatorModelRule` (optional, 0.18.0, default `"the highest model available"` since 0.19.0,
+  `""` = off): the model the coordinator should run on, in the user's words. Every successful
+  `claim` (also `--morning`) prints it in one line that tells the session to compare its model
+  with the available ones and, on a better match, to say so first and hand the seat to a session
+  on that model; its successor and the scheduled morning coordinator get that model too. Absent
+  prints the default; an empty or blank string prints nothing.
 - `handoverTokens` (optional, 0.18.0, default 300000, `0` = off): the context size, in tokens,
   at which the coordinator's role banner opens with a hand-over line (`CONTEXT <N>k tokens, past
-  the hand-over mark of <T>k: hand over now ...`, from the hook input's transcript; past twice
-  the mark it adds `Start nothing else first.`). No figure, no line.
+  the hand-over mark of <T>k: hand over now ...`, from the hook input's transcript; below twice
+  the mark it allows a very small task first, past twice the mark it says `Start nothing else
+  first.`). No figure, no line; a prompt that is exactly `Keepalive` gets no line; `0` also
+  switches the warn line off.
+- `handoverWarnTokens` (optional, 0.19.0, default 250000, `0` = off): from this context size on,
+  below the mark, the coordinator's banner opens with one line `CONTEXT <N>k of <T>k. Before you
+  start this task: a big one (...) → hand over first; a very small one (...) → do it here.`, the
+  cue to prepare the handoff. A value at or above `handoverTokens` is ignored.
 - `morningTakeover`, `morningTaskUrlFile`, `morningWaitUntil`, `morningRoot` (optional, 0.11.1):
   the morning chain under T3 Code. See [Morning coordinator in T3 Code](#morning-coordinator-in-t3-code).
 - `replyTimestamp`, `intentCheck`, `intentCheckVerbs` (optional, 0.11.1, defaults `false` /
@@ -428,7 +441,7 @@ day heading is not the day of that session's last turn is disregarded rather tha
 Nothing here is validated on write — a wrong shape parses as "no entry", which is
 indistinguishable from an absent file, which is why it is written out here.
 
-Until a log exists the role hook says so on every message instead of asking for the closed line,
+Until a log exists the role hook's full text says so instead of asking for the closed line,
 and `plugins/middle-management/templates/session-log.md` is a skeleton to start one from — copy
 it to the resolved path. One file per machine, never one per repository.
 
@@ -477,7 +490,10 @@ every thread, hooks included).
   `--dry-run` sends nothing, `--stats` counts posts per thread and day. State:
   `<config-dir>/state/t3-watch/`, `<config-dir>/state/t3-report/{failures.log,posts.tsv}`.
 - **Settle, not archive.** Settling is the coordinator's step: a worker settles nothing, its
-  wrap's closing lines mean "ready for the coordinator's settle". The coordinator checks each
+  wrap's closing lines mean "ready for the coordinator's settle". It settles at the event: in the
+  same turn a lane reports done and wrapped (its thread and its sub-agent threads), plus a sweep
+  for finished, unsettled threads when it takes the seat, after every wrap and before it hands
+  over. The coordinator checks each
   finished thread right before settling it (brief done, every open point on the board, no pending
   request or unbacked worktree; morning-ritual step 3), then settles its idle sub-agent children
   and the thread with `scripts/t3-settle.py` (`--children-of <id>` / `<id>...`, dry run unless
@@ -868,10 +884,10 @@ plugin never degrades silently. While the config is invalid, the worktree guard 
 - The lane reaper decides from `wt list` alone. The `pr` column reads `-` whenever there is no
   pull-request information to be had (no `gh`, no GitHub remote, `gh` never logged in), and
   only a gh that was supposed to answer and failed reads `error`, which alarms. Without that
-  column only lanes whose branch is an ancestor of the base are cleaned up, and squash-merged
-  ones are listed instead — the safe half of that trade. Such a branch then keeps its ref for
-  good: once the worktree is gone the lane is never listed again, so delete it yourself with
-  the `update-ref` line `/wt … done` printed. The reaper never kills a process by pid, and its
+  column a lane is cleaned up when its branch is an ancestor of the base or, after a squash
+  merge, every file it changed has the same content on the base. A squash-merged lane whose
+  files the base changed again afterwards reads unpushed and is listed instead — the safe half
+  of that trade; remove it yourself once you have checked nothing is lost. The reaper never kills a process by pid, and its
   units point at a COPY under `<config-dir>/middle-management-reaper/`, which the refresh hook
   renews after a plugin update.
 - **There is no idle rule.** Deciding that a lane is idle means reading request lines out of
@@ -894,7 +910,7 @@ plugin never degrades silently. While the config is invalid, the worktree guard 
   and cross-session peer messaging — the substrate the roles ride on.
 - `jq`, `bash`, `python3`, GNU `date` (`date -d`), POSIX `ps`/`kill`. Linux tested; macOS
   expected-compatible but untested; Windows via WSL. `python3` is not heartbeat-only: it runs
-  `peer-state.py`, which the coordinator is pointed at on every message and which
+  `peer-state.py`, which the coordinator's role text points at and which
   `/orchestrator claim` needs to judge a stale seat, and it resolves [scopes](#scopes) once a
   `scopes` key exists. GNU `date` is what `/wt <name> hold
   <topic> <hours>` and the lane reaper do their timestamp and age math with — they refuse

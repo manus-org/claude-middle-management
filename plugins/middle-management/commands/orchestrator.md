@@ -25,7 +25,7 @@ the marker that decides which one.
    the scope the command acted on; relay it.
 
 3. Add one sentence of context only where it helps:
-   - after a successful `claim`: the role banner switches with the next message in every
+   - after a successful `claim`: the role banner switches (printed in full once) with the next message in every
      session of its scope (with a `scopes` key; README, "Scopes"), otherwise in every session
      on this machine.
    - on `BUSY` / `REFUSED`: say which session holds the seat and that only that session
@@ -80,10 +80,13 @@ coordinator's thread (README, "T3 Code"). A script cannot call MCP tools, so you
 4. **Model or effort change:** a webhook run keeps the model the task was created with, also after
    `update_scheduled_task` (a re-save keeps the old model). After a change, create a NEW report task
    from this thread on the new model (item 2), `t3-bind` it (item 3), then `delete_scheduled_task`
-   the old one. **Coordinator model:** when `claim` prints a `Coordinator model:` line, compare your
-   model with that rule (`orchestrator_capabilities` lists the available models); if a better match
-   is available, tell your user that first and recreate your report task on it.
-5. **Handover** (the banner's cue is a first line `CONTEXT <N>k tokens, past the hand-over mark`):
+   the old one. **Coordinator model:** `claim` prints a `Coordinator model:` line (default: the highest
+   model available); compare your model with it (`orchestrator_capabilities` lists the available
+   models). A better match is listed: say so in your first line and hand the seat to a thread on
+   that model (item 5); the successor binds its own report task there.
+5. **Handover** (the banner's cue is a first line `CONTEXT <N>k tokens, past the hand-over mark`;
+   from `handoverWarnTokens` on it reads `CONTEXT <N>k of <T>k. Before you start this task: ...`,
+   which is when you prepare the handoff and start no big task here):
    launch the successor thread (`t3_thread_launch`), then
    `orchestrator.sh t3-handover --to-thread <id> --to-title <title>`. Keep seat and report task
    until the successor has claimed; forward late reports to it with `t3_thread_send`.

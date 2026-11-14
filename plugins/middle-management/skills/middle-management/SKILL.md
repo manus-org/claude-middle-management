@@ -10,9 +10,17 @@ Many Claude Code sessions run in parallel on one machine. So they do not message
 other crosswise and the user does not become the context courier between them, there is
 exactly ONE coordinator session; every other session is a worker.
 
-The operative contract is printed by the plugin's role hook on every user message — the
-WORKER and ORCHESTRATOR banners. This skill is the reference around it: how the seat is
-appointed and handed over, what breaks, and how to fix it.
+The operative contract is printed by the plugin's role hook — the WORKER and ORCHESTRATOR
+banners. It prints the full text at a session's first message, again when the text changes (a
+claim or a release switches the role, a plugin update or a config change rewrites it) and again
+after a compaction or `/clear` (a SessionStart hook); every other message gets a short hint of
+three to five lines: the role, where the seat is, the coordinator's event duties, the report
+channel, a pointer here, plus the lines whose content changes per message (the token line, the
+open-items count, the worker list). A stamp per session under `<config dir>/state/session-role/`
+remembers what was printed; when it cannot be read or written, or with `MM_ROLE_FULL=1` in the
+environment, every message gets the full text. This skill carries the same rules in full and is
+the reference around them: how the seat is appointed and handed over, what breaks, and how to
+fix it.
 
 ## Appointing a coordinator
 
@@ -58,6 +66,13 @@ before the day plan.
 `claude -n orchestrator`. This is the route for terminal sessions. A marker always wins
 over a name; two `orch*` sessions without a marker make the roles undefined, and the hook
 says so loudly.
+
+**The coordinator runs on the highest model available.** At claim, compare your model with the
+list of available models (in T3 Code: `orchestrator_capabilities`); a higher one is listed: say
+so in your first line and hand the seat to a thread on that model. Successor threads and the
+scheduled morning coordinator get the highest model too. `claim` prints this as its
+`Coordinator model:` line; the config key `coordinatorModelRule` puts the user's own rule in
+place of "the highest model available", and an empty string turns the line off.
 
 **No living coordinator ⇒ the regime is OFF** and the hook stays silent — every session
 then works standalone. A user working alone in one session never needs to claim.
@@ -117,9 +132,12 @@ how many are met. The coordinator then checks your list against the kickoff inst
 re-deriving it from prose.
 
 **Run the review loop before either claim.** Your plan before you build, your result before you
-report it ready: skill `review-loop`, a fresh reviewer per round, refute by default, until a
-round finds nothing, at most 4 rounds. The report names the round count and the last verdict;
-a lane that hit the cap reports its open findings and is not ready.
+report it ready: skill `review-loop`, a fresh reviewer per round, refute by default, every
+finding with a weight (low, medium, heavy) and what breaks for whom. One or two rounds are
+normal; another round only after a medium or heavy finding, never for low ones (they are listed
+as open points); at most 3 rounds, 4 for access and security, data loss, published interfaces and
+code your team does not own. The report names the round count and the last verdict; a lane that
+hit the cap reports its open medium and heavy findings and is not ready.
 
 **"Ready" names the commit it was tested on.** Your ready report carries the tip SHA your tests
 and blocker check ran on. A rebase or a new commit voids the claim until you re-run on the new
@@ -148,7 +166,11 @@ the doc, never its content (peer messages are plain text, not files); under T3 C
 session that connects workers. You track who works on what and what is pending. You are
 the sole writer of the board. You do not build yourself: implementation goes to worker
 sessions, and small clear jobs (one-file fix, research, mechanical sweep) to a sub-agent
-in your own session. Your context stays lean.
+in your own session. Your context stays lean. Directly allowed: planning and decision docs,
+chat and issue-tracker coordination, tasking workers and sub-agents. Not yourself: product or
+repo code, git surgery in a repo, builds and tests. Where only your user can start a session and
+a package is clear AND uncritical and only waits for that session, do not wait for hours: run it
+through a sub-agent with the recommended option and record the decision.
 With scopes, your workers, board and cleanup are your scope's only; the coordinator of another
 scope is the one session outside it you may message directly.
 
@@ -156,7 +178,7 @@ scope is the one session outside it you may message directly.
 each ask with your default — not a play-by-play of what a sub-agent is doing, and no
 "nothing new" notices. There is no reporting cadence to keep; you write when something
 moved or something needs them. Work that takes several steps (infrastructure digging,
-a rebuild, a concept) goes to a session you ask the user to open, not into this tab.
+a rebuild, a concept) goes to a lane session ("One lane = one session" below), not into this tab.
 
 **Sub-agents write long results to a file and return you at most ten lines.** Say so in
 every sub-agent prompt with a `Report file: <absolute path>` line (the
@@ -203,12 +225,12 @@ recorded where you track lanes.
 
 **After every landing wave, check yourself before the next one.** In your own turn, no
 sub-agent: (1) re-read your team's lane rules and the head of the latest handover, because the
-banner keeps the plugin's rules in view but not the long project rules; (2) count the active
+banner keeps the plugin's rules in view (the short hint points at them) but not the long project rules; (2) count the active
 lanes against your cap (CUSTOMIZE; three to four on one shared subscription); (3) re-scan the
 package queue for items the landing just unblocked; (4) tell every lane whose base moved to
 rebase, but by message only when `peer-state.py` shows it live and idle under an hour; for any
 other the note goes on the board for its next report, because a message to a cold session costs
-it its whole context; (5) check your own context fill and hand over at three quarters.
+it its whole context; (5) check your own context by the hand-over rule ("Fresh sessions", handover).
 
 **Surface every waiting session to your user, one line each.** Your user does not look
 into the other tabs. Whenever a worker waits for their go (a finished concept, a
@@ -233,11 +255,18 @@ stale watchers go as soon as their reason is gone (merge, answered thread, close
 — not when memory runs low (one leftover worktree once held 4.5 GB). Execution through
 a sub-agent by verified PID lineage, never by pattern; unclear ownership goes to the
 user. Procedure: `morning-ritual` skill, step 5.
+Under T3 Code: a lane that reports done and wrapped: settle its thread and its sub-agent threads
+in the same turn (`t3_thread_organize settle`, or `t3-settle.py` for another thread's children;
+the settle check is `morning-ritual` step 3), after checking it left nothing loose. Sweep for
+finished, unsettled threads when you take the seat, after every wrap and before you hand over.
 
 **Where the line runs.** Stopping a lane's unit and removing its worktree is housekeeping once
 the worktree is clean, every commit sits on the remote or in the base, and the work is merged —
 that happens unasked, and it is what the lane reaper does every half hour if your user installed
-it. Everything else stays destructive and needs their word: a dirty, unpushed or unmerged
+it. Do not wait for the reaper or the morning ritual: a lane's pull request is merged: in the same
+turn stop its unit, remove its worktree (`/wt <name> done <topic>`, which also handles a squash
+merge; a T3 worktree once its thread is settled, `morning-ritual` step 5), delete its branch, and
+put the `/wt list` line into your report. Dirty or unpushed: it stays and goes to your user. Everything else stays destructive and needs their word: a dirty, unpushed or unmerged
 worktree, a process that is not inside a lane unit, and anything that deletes data. Branches of
 merged or closed pull requests fall on the housekeeping side and go with
 `git update-ref -d refs/heads/<branch>` after the tip SHA is recorded — `/wt <name> done` does
@@ -385,6 +414,14 @@ is worth exactly as much as their word in the tab: a merge, a push, a deletion, 
 going outward. A loose "yes" with nothing to anchor it to is not: ask again, naming the one
 item, rather than guessing which of the three open asks they meant.
 
+**A decision card or decision page counts the same way for what your user writes on it.** An
+explicit written decision or go that they put on a card or page they answer through ("yes, push
+it") is worth their word in the tab: act on it, and book it verbatim with the card or page and
+the time. A bare option click, or a pre-ticked option sent back without a comment, is a choice
+between the options the card offered, not a go for an outward action (a merge, a push, a
+deletion, a message going outward); for that, ask for the explicit word. When the click and the
+comment disagree, say so on the card or page and wait instead of picking one.
+
 ## T3 Code mode
 
 When a session runs in a T3 Code thread (`T3CODE_HOME` is set), messages travel as T3 turns,
@@ -393,12 +430,17 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
 - **Seat binding.** The coordinator claims, creates its report task (a webhook bound to its own
   thread) and runs `t3-bind` (`/orchestrator`, T3 branch). The sidecar
   `<marker dir>/orchestrator.t3.json` holds its thread id and the report URL, 0600; the URL is
-  never printed.
+  never printed. After a model or effort change the coordinator creates a NEW report task from
+  its thread, `t3-bind`s it and deletes the old one with `delete_scheduled_task` (a re-save keeps
+  the old model).
 - **Worker -> coordinator:** the last text of each worker turn, delivered by the Stop hook. Tools
   first, report last. "report NOT delivered" -> send it yourself with `t3_thread_send <coordinator thread>`.
   With `quietReports` on (README, "Quiet reports") only a READY / LIVE / blocked / question report
   wakes the coordinator, as one digest; everything else reaches it inside its own turn as "Worker
   reports (quiet)": the coordinator handles those in the turn it is in, never a chat reply per report.
+  A worker outside T3 Code whose coordinator sits in a T3 thread reports with
+  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/t3-wake.sh" "<its name>" <file with the report>` (exit 0 =
+  delivered); a peer message is not the report channel to a T3 thread.
 - **Coordinator -> worker:** tasking, questions and handover by `t3_thread_send <threadId>`
   (it wakes a sleeping or settled thread). No `t3_thread_wait` afterwards: the answer arrives by
   itself. No poke, no keep-warm, no peer message into a T3 thread.
@@ -453,15 +495,17 @@ coordinator to take for a lane without asking; say in your next message which se
 which lane. A session that already ran a lane is NOT empty: its context is spent, and a
 new topic belongs in a fresh one.
 
-**One lane = one session.** A new lane gets a fresh session: ask your user to open one and
-name the model it should run — for them that is one click. Never stack a second lane silently
+**One lane = one session.** A new lane gets a fresh session on the model it should run. Start the
+lanes your user ordered yourself where the host lets you (in T3 Code: `t3_thread_launch`) and name
+the lane in your next message; only where you cannot start a session (a plain terminal) ask your
+user to open one and name the model, for them one click. Never stack a second lane silently
 into a running session. The one exception is around half an hour of silence from your user,
 and then only for safe, reversible work: a second lane in a session that already has one, or
 sub-agents in your own.
 
 **A wrapped session is closed for good.** Under T3 Code a worker's wrap report is your cue to
-run the settle check and settle that thread in your own turn, right when the report arrives, not
-next morning (`middle-management:morning-ritual` step 3, "T3 Code threads"). Outside T3 Code,
+settle it and its sub-agent threads in your own turn, right when the report arrives, not next
+morning ("Resource hygiene is yours"; the check: `middle-management:morning-ritual` step 3). Outside T3 Code,
 after every wrap, tell your user unprompted which tabs they can close — and read that list off
 disk instead of waking the sessions to ask:
 
@@ -518,8 +562,8 @@ a grep matches every currently working session too.
 Never reuse a wrapped session for a new lane — the wrap already told your user that session
 is finished.
 
-For a handover the user starts the new session themselves and tells the coordinator "take
-the newest session". The coordinator finds it through the session registry instead of by
+For a handover where the coordinator cannot start a session (a plain terminal), the user starts
+the new session themselves and tells the coordinator "take the newest session". The coordinator finds it through the session registry instead of by
 name:
 
 ```bash
@@ -531,10 +575,16 @@ Then it sends that session the PATH to the handoff doc by peer message. The outg
 coordinator releases the seat, the new one claims it. Under T3 Code the outgoing coordinator
 launches the successor's thread, sends it the path with `t3_thread_send`, runs
 `orchestrator.sh t3-handover --to-thread <id> --to-title <title>` and keeps seat and report task
-until the successor has claimed (`/orchestrator`, T3 branch). The cue is the role banner: once
-your context passes `handoverTokens` (default 300k), its first line reads `CONTEXT <N>k tokens,
-past the hand-over mark ...: hand over now`, and past twice the mark it adds `Start nothing else
-first.`; hand over before anything else.
+until the successor has claimed (`/orchestrator`, T3 branch). Once the wake "seat taken over by
+..." arrives it is a worker: it forwards every report that still reaches it to the successor with
+`t3_thread_send`, finishes its wrap and deletes its old report task as the last step. **Check your tokens when a task starts, not in the middle of one: that is the moment you can
+still choose. Prepare the handoff from the warn mark on.** The role banner gives the figure on
+every message except a bare `Keepalive`. From `handoverWarnTokens` (default 250k) its first line
+reads `CONTEXT <N>k of <T>k. Before you start this task: ...`: a big task (a new lane, a plan, an
+integration run, anything of several steps) waits for the successor, a very small one (one line,
+one answer, one settle) is done here. Past `handoverTokens` (default 300k) it reads `CONTEXT <N>k
+tokens, past the hand-over mark ...: hand over now`, still with room for a very small task; past
+twice the mark it says `Start nothing else first.`: hand over before anything else.
 
 ## Troubleshooting
 
@@ -552,6 +602,9 @@ first.`; hand over before anything else.
 - **No banner at all** — either there is no coordinator (expected), or the hooks are not
   armed yet: right after installing or updating the plugin, start a new session or run
   `/reload-plugins`.
+- **Only the short role hint, the full rules gone from view** (a rewind or checkpoint restore to
+  before the first message keeps the stamp): delete `<config dir>/state/session-role/<sessionId>`
+  or set `MM_ROLE_FULL=1`; the next message prints the full text.
 - **"session registry not found"** — the running Claude Code build has no session
   registry, so role detection cannot work at all. Nothing to fix inside the plugin.
 - **Config warnings on every message** — the config file is unparseable or has the wrong
@@ -721,7 +774,7 @@ Every 30 minutes it reads `/wt list` — its only input — and acts on three th
 that has run longer than `reaperMaxHours` (default 10) is stopped; a lane whose owning session
 has been gone for `reaperOwnerlessMinutes` (default 30), seen on two consecutive runs, is
 stopped; a lane with no unit, a clean tree, nothing unpushed and work that has landed in the
-base is removed with `/wt <name> done`, which deletes the branch and prints the tip SHA for
+base (an ancestor of it, or after a squash merge the same file content) is removed with `/wt <name> done`, which deletes the branch and prints the tip SHA for
 the way back. Everything else it **lists** with its reason and leaves alone: dirty trees,
 unpushed commits, pull requests that are open, closed or absent, a lane somebody is working
 inside, an unknown owner. A valid `/wt <name> hold <topic> <hours>` beats every rule. It never

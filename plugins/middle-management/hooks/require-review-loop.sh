@@ -41,5 +41,5 @@ for MARKER in "$(bash "$CHECK" dir)"/state/{review-loop,plan-review}/"${SESSION}
 done
 
 jq -n '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:
-  "Review gate (reviewLoopGate): this plan or handoff has not been through the review-loop skill in this session within the last hour. Draft it somewhere else (your scratch dir), run the review-loop skill on the draft (a fresh-context reviewer, findings verified, fixed, re-reviewed, at most 4 rounds), and the skill writes the marker that opens this gate. Skill: middle-management:review-loop."}}'
+  "Review gate (reviewLoopGate): this plan or handoff has not been through the review-loop skill in this session within the last hour. Draft it somewhere else (your scratch dir), run the review-loop skill on the draft (a fresh-context reviewer, findings weighted and verified, fixed, re-reviewed only after a medium or heavy finding, usually one or two rounds), and the skill writes the marker that opens this gate. Skill: middle-management:review-loop."}}'
 exit 0

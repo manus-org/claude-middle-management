@@ -11,8 +11,8 @@ PR from the same folder overwrites it. With `prGate: true` the PR gate hook hold
 until all seven boxes are ticked and `Branch:` names the branch being opened (review-loop step 7).
 
 - [ ] Every `AGENTS.md` above a touched file walked rule by rule by a fresh reviewer, zero broken; the rules walked are listed in the PR body under `## Details`.
-- [ ] The last review-loop round on this tip came back CLEAN: <report path>
-- [ ] Every confirmed finding is fixed or decided by the user; none is left to the maintainer as "if you prefer".
+- [ ] The last review-loop round on this tip came back CLEAN (no medium or heavy finding): <report path>
+- [ ] Every confirmed medium or heavy finding is fixed or decided by the user, low ones are fixed or listed as open points; none is left to the maintainer as "if you prefer".
 - [ ] Every async path named in the plan (race, retry, late or stale answer, duplicate job, per-call timeout) has a test, or a written reason in the PR body.
 - [ ] Checks ran one at a time, capped, touched packages only (or the full suite on the coordinator's call): <command> -> <result>
 - [ ] Every new public method, export and published field is listed in the PR body.

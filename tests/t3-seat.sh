@@ -4,12 +4,14 @@
 #   bash tests/t3-seat.sh
 #   A  orchestrator.sh t3-bind / status / t3-handover / handover claim / takeover wake / previous / release
 #   B  the asleep guard: claim and release <id> refuse, --t3-asleep-ok overrides
-#   C  session-role.sh: asleep T3 coordinator, T3 worker lines, T3 coordinator lines, former coordinator
+#   C  session-role.sh: asleep T3 coordinator, T3 worker lines, T3 coordinator lines, the short hints
+#      on a second message, former coordinator
 #   D  scopeMode per-root: two roots, no catch-all, a standalone session
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
-#   H  coordinatorModelRule: the claim line (plain and --morning), config-check validate
-#   I  handoverTokens: the coordinator banner's hand-over line (fake transcripts), config-check validate
+#   H  coordinatorModelRule: the claim line (default, off, user rule; plain and --morning), config-check validate
+#   I  handoverTokens / handoverWarnTokens: the coordinator banner's hand-over and warn lines (fake transcripts),
+#      no line for a Keepalive prompt, config-check validate
 #   Z  no webhook URL in any output
 # The takeover wake runs the REAL t3-wake.sh against a local HTTP stub that logs the request path.
 set -uo pipefail
@@ -140,6 +142,19 @@ has "...the command shape incl. --waits-on" 'scripts/topics.py" entry --status <
 has "...a lane's first entry needs no --new" "the first entry creates it" "$OUT"
 has "...T3 worktree is not removed" "belongs to T3: never /wt done" "$OUT"
 lacks "...not stale" "not visibly alive" "$OUT"; lacks "...no release hint" "release sess-c1" "$OUT"
+OUT=$(role "$H" sess-w1); ALL="$ALL$OUT"
+lacks "second message of the T3 worker -> the short hint" "Book every READY" "$OUT"
+has "...report channel and Keepalive in one line" 'Your report = the last text of your turn (the Stop hook delivers it); never SendMessage or poke a T3 coordinator, never message other workers. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.' "$OUT"
+has "...names the asleep coordinator" 'The coordinator is asleep in T3 thread "coord one" (mcp:t-c1)' "$OUT"
+is "...at most five lines" "$(( $(printf '%s\n' "$OUT" | grep -c .) <= 5 ))" 1
+CP=$(live "$H" c1 "$H")   # the coordinator wakes: the role line changes, the rules do not
+OUT=$(role "$H" sess-w1); ALL="$ALL$OUT"
+has "coordinator awake -> the live role line" 'The coordinator is T3 thread "coord one" (mcp:t-c1) ("c1").' "$OUT"
+lacks "...still the short hint, no re-print" "Book every READY" "$OUT"
+kill "$CP" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$CP" 2>/dev/null || break; sleep 0.2; done
+OUT=$(role "$H" sess-w1); ALL="$ALL$OUT"
+has "asleep again -> the asleep line" "The coordinator is asleep in" "$OUT"
+lacks "...still the short hint" "Book every READY" "$OUT"
 OUT=$(role "$H" sess-w1 ""); has "a non-T3 worker -> report through t3-wake.sh" "scripts/t3-wake.sh\" \"w1\"" "$OUT"
 lacks "...no T3 worktree line" "belongs to T3" "$OUT"
 lacks "...no topics.py line (outside T3 the banner is unchanged)" "topics.py" "$OUT"
@@ -152,6 +167,12 @@ me "$H" c1 "$H"; live "$H" w1 "$H" >/dev/null
 OUT=$(role "$H" sess-c1); ALL="$ALL$OUT"
 has "T3 coordinator banner" "Session role: ORCHESTRATOR" "$OUT"
 has "T3 coordinator banner: a wrap is the cue for the settle check" "in T3: run the settle check" "$OUT"
+has "...starts lanes itself" "larger packages go to worker sessions: start it yourself (t3_thread_launch) and name its model." "$OUT"
+has "...settles a wrapped lane and its sub-agent threads in the same turn" "settle its thread and its sub-agent threads in the same turn" "$OUT"
+has "...sweeps at seat take, after every wrap, before handover" "Sweep for finished, unsettled threads when you take the seat, after every wrap and before you hand over." "$OUT"
+has "...cleanup at the merge, same turn, T3 worktree once settled" "(/wt <name> done <topic>; a T3 worktree once its thread is settled), delete its branch, and put the" "$OUT"
+has "...one lane = one session, launched by itself" "a new lane gets a FRESH session — start it yourself (t3_thread_launch)" "$OUT"
+lacks "...never asks the user to open a lane session" "ask your user to open one" "$OUT"
 has "...a new report task on a model change" "After a model or effort change: a NEW report task" "$OUT"
 has "...no t3_thread_wait after t3_thread_send" "do not t3_thread_wait after" "$OUT"
 has "...forward late reports after a takeover" "forward every report that" "$OUT"
@@ -165,8 +186,18 @@ has "...quiet mode on: the quiet reports line" 'Worker reports may arrive inside
 has "...handled in the turn, no reply per report" "do not open a chat reply per report" "$OUT"
 lacks "...not the every-report-is-a-turn line" "as turns of this thread" "$OUT"
 has "...the rest of the line stays" "Task or ask a worker with t3_thread_send <its thread id>" "$OUT"
+OUT=$(role "$H" sess-c1); ALL="$ALL$OUT"
+lacks "second message of the T3 coordinator -> the short hint" "RE-WAKE checklist" "$OUT"
+has "...the event duties in one line, settle included" "At events: a lane reports done and wrapped → settle it and its sub-agent threads; a lane's pull request is merged → clean up its lane in the same turn; a task starts → check your tokens." "$OUT"
+has "...the seat binding, quiet mode, Keepalive" 'T3 Code: your seat is bound to T3 thread "coord one" (mcp:t-c1), report task task-1; worker reports arrive by themselves (quiet mode). A message that is exactly "Keepalive": answer exactly "OK"' "$OUT"
+has "...where the full rules are" "Full rules: skill middle-management:middle-management" "$OUT"
+is "...at most five lines plus the worker list" "$(( $(printf '%s\n' "$OUT" | grep -vc '^Current workers') <= 5 ))" 1
 rm -f "$H/.claude/middle-management.json"
-lacks "a coordinator outside T3 gets no T3 lines" "T3 Code" "$(role "$H" sess-c1 "")"
+OUT=$(role "$H" sess-c1 ""); lacks "a coordinator outside T3 gets no T3 lines" "T3 Code" "$OUT"
+lacks "...no settle sentence outside T3" "unsettled threads" "$OUT"
+has "...cleanup at the merge outside T3" "a lane's pull request is merged -> in the same turn stop" "$OUT"
+has "...plain /wt done there" "(/wt <name> done <topic>), delete its branch, and put the" "$OUT"
+has "...starts lanes itself where the host lets it, else asks the user" "start it yourself where your host lets you, else ask your user to open one and name the model" "$OUT"
 jq 'del(.reportUrl) | .sessionId = "sess-other"' "$SIDE" > "$TMP/x"; cp "$TMP/x" "$SIDE"
 has "T3 coordinator without its binding -> told to t3-bind" "no thread binding yet" "$(role "$H" sess-c1)"
 # former coordinator: the successor bound, this session is "previous"
@@ -318,12 +349,20 @@ printf '{"by":"sess-m2"}\n' > "$PF"; as_s "$H" m2 "$H" release >/dev/null
 
 echo "== H: coordinatorModelRule =="
 H=$(new_home); CF=$H/.claude/middle-management.json
-OUT=$(as_s "$H" h1 "$H" claim); lacks "no key -> no model line" "Coordinator model:" "$OUT"
+OUT=$(as_s "$H" h1 "$H" claim); has "no config file -> the default model line" "Coordinator model: the highest model available. Compare your model" "$OUT"
+has "...names orchestrator_capabilities, first line, hand the seat" 'available models (in T3 Code: orchestrator_capabilities); a better match is listed: say so in your first line and hand the seat to a session on that model' "$OUT"
+has "...successor and morning coordinator too" "Your successor and the scheduled morning coordinator get that model too." "$OUT"
+printf '{"userName":"u"}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); has "key absent -> the default model line" "Coordinator model: the highest model available." "$OUT"
+printf '{"coordinatorModelRule":null}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); has "key null -> the default model line" "Coordinator model: the highest model available." "$OUT"
+printf '{"coordinatorModelRule":""}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
+OUT=$(as_s "$H" h1 "$H" claim); lacks "empty string -> off, no model line" "Coordinator model:" "$OUT"
 printf '{"coordinatorModelRule":"  "}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
-OUT=$(as_s "$H" h1 "$H" claim); lacks "blank key -> no model line" "Coordinator model:" "$OUT"
+OUT=$(as_s "$H" h1 "$H" claim); lacks "blank key -> off, no model line" "Coordinator model:" "$OUT"
 printf '{"coordinatorModelRule":"the highest available Fable"}\n' > "$CF"; as_s "$H" h1 "$H" release >/dev/null
-OUT=$(as_s "$H" h1 "$H" claim); has "key set -> the model line" "Coordinator model: the highest available Fable. Compare your model" "$OUT"
-has "...names orchestrator_capabilities and item 4" 'orchestrator_capabilities lists the available models); if a better match is available, tell your user first and recreate your report task on it (/orchestrator "T3 Code" item 4)' "$OUT"
+OUT=$(as_s "$H" h1 "$H" claim); has "key set -> the user's rule replaces the default" "Coordinator model: the highest available Fable. Compare your model" "$OUT"
+lacks "...and the default is not printed" "the highest model available" "$OUT"
 g_home "3 hours ago"; jq '.coordinatorModelRule = "the highest available Fable"' "$H/.claude/middle-management.json" > "$TMP/x"; cp "$TMP/x" "$H/.claude/middle-management.json"
 OUT=$(as_s "$H" m1 "$H" claim --thread mcp:t-m1 --morning); has "--morning claim -> the model line too" "Coordinator model: the highest available Fable." "$OUT"
 vcfg() { printf '%s' "$1" > "$TMP/vc/middle-management.json"; CLAUDE_CONFIG_DIR="$TMP/vc" bash "$P/scripts/config-check.sh" validate >/dev/null 2>&1; echo $?; }
@@ -332,25 +371,38 @@ is "config-check: a string is valid" "$(vcfg '{"coordinatorModelRule":"the highe
 is "config-check: blank is valid" "$(vcfg '{"coordinatorModelRule":""}')" 0
 is "config-check: a number is rejected" "$(vcfg '{"coordinatorModelRule":5}')" 1
 
-echo "== I: handoverTokens hand-over line =="
+echo "== I: handoverTokens hand-over line, handoverWarnTokens warn line =="
 H=$(new_home); as_s "$H" ho "$H" claim >/dev/null; me "$H" ho "$H"
 tx() {  # <tokens>: a fake transcript whose last usage line sums to <tokens>
   printf '{"type":"user","message":{"content":"hi"}}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' "$(($1 - 1))" > "$TMP/tx.jsonl"; }
 hrole() {  # <sessionId> <transcript> [T3 home or ""]
   printf '{"session_id":"%s","transcript_path":"%s"}' "$1" "$2" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="${3-$H/.t3}" bash "$ROLE" 2>&1; }
-tx 299000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
-lacks "below the mark (default 300k) -> no hand-over line" "CONTEXT" "$OUT"
+hprompt() {  # <sessionId> <transcript> <prompt as a JSON string>: the same, with the prompt field
+  printf '{"session_id":"%s","transcript_path":"%s","prompt":%s}' "$1" "$2" "$3" | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="$H/.t3" bash "$ROLE" 2>&1; }
+WARN_TAIL=". Before you start this task: a big one (a new lane, a plan, an integration run, anything of several steps) → hand over first; a very small one (one line, one answer, one settle) → do it here."
+tx 249000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+lacks "below the warn mark (default 250k) -> no token line" "CONTEXT" "$OUT"
 has "...the banner is unchanged" "Session role: ORCHESTRATOR" "$OUT"
+tx 299000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
+is "past the warn mark, below the mark -> the FIRST line is the warn line" "$(head -1 <<<"$OUT")" "CONTEXT 299k of 300k$WARN_TAIL"
+lacks "...no 'hand over now'" "hand over now" "$OUT"
+has "...the rest of the banner follows" "Session role: ORCHESTRATOR" "$OUT"
+lacks "a Keepalive prompt -> no warn line" "CONTEXT" "$(hprompt sess-ho "$TMP/tx.jsonl" '"Keepalive"')"
+has "a normal prompt -> the warn line" "CONTEXT 299k of 300k" "$(hprompt sess-ho "$TMP/tx.jsonl" '"plan the next lane"')"
+has "a prompt that only mentions Keepalive -> still the line" "CONTEXT 299k of 300k" "$(hprompt sess-ho "$TMP/tx.jsonl" '"why was Keepalive sent?"')"
 tx 412000; OUT=$(hrole sess-ho "$TMP/tx.jsonl"); ALL="$ALL$OUT"
-is "past the mark, T3 -> the FIRST line says hand over now" "$(head -1 <<<"$OUT")" \
-  "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>."
+is "past the mark, T3 -> the FIRST line says hand over now, small-task exception" "$(head -1 <<<"$OUT")" \
+  "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — launch the successor (t3_thread_launch), then orchestrator.sh t3-handover --to-thread <id> --to-title <title>. Only a very small task (one line, one answer, one settle) may still be done here first."
 lacks "...below 2x: no 'start nothing else'" "Start nothing else first." "$OUT"
+lacks "...and no warn line on top" "of 300k." "$OUT"
+lacks "past the mark, Keepalive (whitespace around) -> no line" "CONTEXT" "$(hprompt sess-ho "$TMP/tx.jsonl" '"  Keepalive\n"')"
 has "...the rest of the banner follows" "Session role: ORCHESTRATOR" "$OUT"
 OUT=$(hrole sess-ho "$TMP/tx.jsonl" ""); L1=$(head -1 <<<"$OUT")
 has "past the mark, outside T3 -> the plain handover path" "CONTEXT 412k tokens, past the hand-over mark of 300k: hand over now — ask your user for a fresh session" "$L1"
 lacks "...no t3-handover outside T3" "t3-handover" "$L1"
 tx 600000; OUT=$(hrole sess-ho "$TMP/tx.jsonl")
 has "at 2x the mark -> 'Start nothing else first.' on the first line" "Start nothing else first." "$(head -1 <<<"$OUT")"
+lacks "...and no small-task exception there" "very small task" "$(head -1 <<<"$OUT")"
 live "$H" w9 "$H" >/dev/null; lacks "a worker never gets the line" "CONTEXT" "$(hrole sess-w9 "$TMP/tx.jsonl")"
 lacks "no transcript file -> no line" "CONTEXT" "$(hrole sess-ho "$TMP/none.jsonl")"
 printf 'not json\n{"type":"assistant","message":{"usage":{"input_tokens":0}}}\n' > "$TMP/bad.jsonl"
@@ -359,6 +411,16 @@ has "...and the banner still prints" "Session role: ORCHESTRATOR" "$OUT"
 lacks "no transcript_path in the input -> no line" "CONTEXT" "$(printf '{"session_id":"sess-ho"}' | HOME="$H" CLAUDE_CONFIG_DIR="" CLAUDE_PLUGIN_ROOT="$P" T3CODE_HOME="$H/.t3" bash "$ROLE" 2>&1)"
 printf '{"handoverTokens":0}\n' > "$H/.claude/middle-management.json"
 lacks "handoverTokens 0 -> off" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+tx 299000; lacks "handoverTokens 0 -> the warn line is off too" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverWarnTokens":0}\n' > "$H/.claude/middle-management.json"
+lacks "handoverWarnTokens 0 -> no warn line" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverWarnTokens":300000}\n' > "$H/.claude/middle-management.json"; tx 300000
+OUT=$(hrole sess-ho "$TMP/tx.jsonl"); has "warn mark at the mark -> ignored, the hand-over line" "past the hand-over mark of 300k" "$OUT"
+lacks "...and no warn line" "of 300k." "$OUT"
+printf '{"handoverWarnTokens":350000}\n' > "$H/.claude/middle-management.json"; tx 299000
+lacks "warn mark above the mark -> ignored, no line below the mark" "CONTEXT" "$(hrole sess-ho "$TMP/tx.jsonl")"
+printf '{"handoverTokens":200000,"handoverWarnTokens":100000}\n' > "$H/.claude/middle-management.json"; tx 150000
+is "both keys set -> their marks" "$(head -1 <<<"$(hrole sess-ho "$TMP/tx.jsonl")")" "CONTEXT 150k of 200k$WARN_TAIL"
 printf '{"handoverTokens":100000}\n' > "$H/.claude/middle-management.json"; tx 150000
 has "handoverTokens 100000 -> its mark" "CONTEXT 150k tokens, past the hand-over mark of 100k" "$(hrole sess-ho "$TMP/tx.jsonl")"
 rm -f "$H/.claude/sessions/$$.json"
@@ -366,6 +428,10 @@ is "config-check: handoverTokens number is valid" "$(vcfg '{"handoverTokens":300
 is "config-check: handoverTokens 0 is valid" "$(vcfg '{"handoverTokens":0}')" 0
 is "config-check: handoverTokens string is rejected" "$(vcfg '{"handoverTokens":"300k"}')" 1
 is "config-check: handoverTokens negative is rejected" "$(vcfg '{"handoverTokens":-1}')" 1
+is "config-check: handoverWarnTokens number is valid" "$(vcfg '{"handoverWarnTokens":250000}')" 0
+is "config-check: handoverWarnTokens 0 is valid" "$(vcfg '{"handoverWarnTokens":0}')" 0
+is "config-check: handoverWarnTokens string is rejected" "$(vcfg '{"handoverWarnTokens":"250k"}')" 1
+is "config-check: handoverWarnTokens negative is rejected" "$(vcfg '{"handoverWarnTokens":-5}')" 1
 
 echo "== Z =="
 lacks "no webhook secret in any output" "$S1" "$ALL"; lacks "...nor the second" "$S2" "$ALL"
