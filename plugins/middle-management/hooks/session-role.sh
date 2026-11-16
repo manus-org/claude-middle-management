@@ -204,6 +204,9 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
     printf 'A lane that reports done and wrapped: settle its thread and its sub-agent threads in the same turn\n'
     printf '(t3_thread_organize settle, or t3-settle.py: morning-ritual step 3), after checking it left nothing\n'
     printf 'loose. Sweep for finished, unsettled threads when you take the seat, after every wrap and before you hand over.\n'
+    printf 'Your user sees only the last text of a turn they started: bookkeeping first, answer last; reports handled\n'
+    printf 'after the answer mean the full answer again as the last text, never a one-line addendum. What arises in a\n'
+    printf 'turn a worker report or a wake started is restated in their next turn.\n'
   fi
   if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
@@ -272,6 +275,7 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   printf 'At events: %sa lane'"'"'s pull request is merged → clean up its lane in the same turn; a task starts → check your tokens.\n' \
     "$([ -n "${T3CODE_HOME:-}" ] && echo 'a lane reports done and wrapped → settle it and its sub-agent threads; ')"
   if [ -n "${T3CODE_HOME:-}" ]; then
+    printf 'Your user sees only the last text of a turn they started: bookkeeping first, answer last, never a one-line addendum; restate in their next turn what arose in a turn a worker report or a wake started.\n'
     if [ "$SIDE_SID" = "$MY_ID" ]; then
       printf 'T3 Code: your seat is bound to %s, report task %s; worker reports arrive by themselves%s. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.\n' \
         "$T3T" "$(side '.reportTaskId // "?"')" "$(jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1 && echo ' (quiet mode)')"

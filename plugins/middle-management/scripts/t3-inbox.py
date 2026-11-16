@@ -52,7 +52,8 @@ WAKING_S, CLAIM_S, TTL_S, TICK_STALE_S = 120, 300, 24 * 3600, 30 * 60
 HEAD_WAKE = "Worker reports (quiet), %d waiting, oldest first:"
 TAIL_WAKE = "(%d more arrive as hook context in this turn)"
 HEAD_INJECT = ("Worker reports (quiet): %d arrived without a turn of their own, oldest first. Handle them in "
-               "the turn you are in; do not answer each one with a chat message of its own.")
+               "the turn you are in; do not answer each one with a chat message of its own. If your user started this "
+               "turn, its last text is the full answer to them again, the new point added, never a one-line addendum.")
 TAIL_INJECT = "(%d more follow with your next tool call or turn)"
 
 

@@ -176,6 +176,7 @@ lacks "...never asks the user to open a lane session" "ask your user to open one
 has "...a new report task on a model change" "After a model or effort change: a NEW report task" "$OUT"
 has "...no t3_thread_wait after t3_thread_send" "do not t3_thread_wait after" "$OUT"
 has "...forward late reports after a takeover" "forward every report that" "$OUT"
+has "...bookkeeping first, answer last" "Your user sees only the last text of a turn they started: bookkeeping first, answer last" "$OUT"
 has "...Keepalive -> OK" 'exactly "Keepalive": answer exactly "OK"' "$OUT"
 has "...names its binding" 'T3 thread "coord one" (mcp:t-c1), report task task-1' "$OUT"
 has "...book reports, answers and OKs with topics.py" 'scripts/topics.py" entry --topic <key> ... or answer --topic <key> "<text>"' "$OUT"
@@ -191,6 +192,7 @@ lacks "second message of the T3 coordinator -> the short hint" "RE-WAKE checklis
 has "...the event duties in one line, settle included" "At events: a lane reports done and wrapped → settle it and its sub-agent threads; a lane's pull request is merged → clean up its lane in the same turn; a task starts → check your tokens." "$OUT"
 has "...the seat binding, quiet mode, Keepalive" 'T3 Code: your seat is bound to T3 thread "coord one" (mcp:t-c1), report task task-1; worker reports arrive by themselves (quiet mode). A message that is exactly "Keepalive": answer exactly "OK"' "$OUT"
 has "...where the full rules are" "Full rules: skill middle-management:middle-management" "$OUT"
+has "...the last text is the answer" "bookkeeping first, answer last, never a one-line addendum" "$OUT"
 is "...at most five lines plus the worker list" "$(( $(printf '%s\n' "$OUT" | grep -vc '^Current workers') <= 5 ))" 1
 rm -f "$H/.claude/middle-management.json"
 OUT=$(role "$H" sess-c1 ""); lacks "a coordinator outside T3 gets no T3 lines" "T3 Code" "$OUT"
