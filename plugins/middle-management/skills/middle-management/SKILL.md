@@ -441,6 +441,11 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   A worker outside T3 Code whose coordinator sits in a T3 thread reports with
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/t3-wake.sh" "<its name>" <file with the report>` (exit 0 =
   delivered); a peer message is not the report channel to a T3 thread.
+- **Coordinator -> your user:** your user sees only the last text of a turn they started; text
+  before a later tool call is folded away. Bookkeeping first, answer last. When reports arrive
+  after the answer (the Stop hook hands them in), the turn's last text is the full answer again,
+  the new point added, never a one-line addendum. What arises in a turn a worker report or a wake
+  started is restated in your user's next turn.
 - **Coordinator -> worker:** tasking, questions and handover by `t3_thread_send <threadId>`
   (it wakes a sleeping or settled thread). No `t3_thread_wait` afterwards: the answer arrives by
   itself. No poke, no keep-warm, no peer message into a T3 thread.

@@ -158,6 +158,7 @@ OUT=$(inj 10 "$(ev PostToolUse)")
 is "the coordinator's PostToolUse -> additionalContext" "$(jq -r .hookSpecificOutput.hookEventName <<<"$OUT")" PostToolUse
 C=$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")
 has "...the header" "Worker reports (quiet): 2 arrived without a turn of their own" "$C"
+has "...the last text is the full answer again" "its last text is the full answer to them again" "$C"
 has "...the first report" "READY one" "$C"; has "...the second" "status two" "$C"
 is "...printed = consumed" "$(items)/$(ls "$IN" | grep -c claimed)" "0/0"
 is "...one inbox.log line each" "$(grep -c '	injected	.*	PostToolUse$' "$ST/t3-report/inbox.log")" 2

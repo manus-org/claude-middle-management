@@ -204,6 +204,9 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
     printf 'A lane that reports done and wrapped: settle its thread and its sub-agent threads in the same turn\n'
     printf '(t3_thread_organize settle, or t3-settle.py: morning-ritual step 3), after checking it left nothing\n'
     printf 'loose. Sweep for finished, unsettled threads when you take the seat, after every wrap and before you hand over.\n'
+    printf 'Your user sees only the last text of a turn they started: bookkeeping first, answer last. Reports handled\n'
+    printf 'after your answer: end with the full answer again, never a one-line addendum. What arises in a turn a\n'
+    printf 'worker report or a wake started is restated in their next turn.\n'
   fi
   if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
@@ -269,8 +272,9 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   printf 'Session role: ORCHESTRATOR%s ("%s", by %s). You plan with your user and route the work; you do not build: lanes go to worker sessions, small clear jobs to a sub-agent.\n' \
     "$OF" "${MY_NAME:-unnamed}" "$([ "$ORCH_SRC" = marker ] && echo marker || echo name)"
   # One line for the event duties: the T3 part only where the full text has it.
-  printf 'At events: %sa lane'"'"'s pull request is merged → clean up its lane in the same turn; a task starts → check your tokens.\n' \
-    "$([ -n "${T3CODE_HOME:-}" ] && echo 'a lane reports done and wrapped → settle it and its sub-agent threads; ')"
+  printf 'At events: %sa lane'"'"'s pull request is merged → clean up its lane in the same turn; a task starts → check your tokens%s.\n' \
+    "$([ -n "${T3CODE_HOME:-}" ] && echo 'a lane reports done and wrapped → settle it and its sub-agent threads; ')" \
+    "$([ -n "${T3CODE_HOME:-}" ] && echo '; your user started the turn → bookkeeping first, answer last, never a one-line addendum; a worker report or a wake started it → restate in their next turn')"
   if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
       printf 'T3 Code: your seat is bound to %s, report task %s; worker reports arrive by themselves%s. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.\n' \

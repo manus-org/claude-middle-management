@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.19.1 - 2026-11-16
+
+**The coordinator's last text is the answer.** Under T3 Code your user sees only the last text of a
+turn they started; text before a later tool call is folded away. The "Worker reports (quiet)" text
+that the hooks hand in (`scripts/t3-inbox.py`, also at the coordinator's own Stop) now adds: if your
+user started this turn, its last text is the full answer to them again, the new point added, never
+a one-line addendum. The T3 coordinator banner (`hooks/session-role.sh`, full text and short hint)
+and the skill (`middle-management`, "T3 Code mode", new bullet "Coordinator -> your user") say:
+bookkeeping first, answer last; what arises in a turn a worker report or a wake started is restated
+in your user's next turn. Cause: reports handed in at Stop made the turn go on after the answer, and
+the answer disappeared behind a one-line addendum, 2026-11-16.
+
 ## 0.19.0 - 2026-11-13
 
 **The role hook prints the full rules once, then a short hint.** The full WORKER / ORCHESTRATOR
