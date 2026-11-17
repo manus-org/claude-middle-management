@@ -6,10 +6,12 @@
 a coordinator whose thread is in a usage-limit episode: each wake started a run that failed at
 once. `scripts/t3-inbox.py` reads the watcher's state file `<config-dir>/state/t3-watch/<scope>.json`
 and holds the digest while `limit.runs` names the sidecar's thread; the items wait in the inbox.
-The watcher's inbox tick already runs after its thread check, so the tick that ends the episode
-sends one digest with what waited. Fail open: a missing or unreadable file, or one the watcher has
-not checked for 30 min (new field `checked`, written by `scripts/t3-watch.py` on every check),
-wakes as before. The `Keepalive` retry, the takeover notice, the watcher's other wakes and reports
+After the reset they arrive inside the first coordinator turn that gets through (usually the
+`Keepalive` retry, handed in by its Stop hook), or as one digest: the watcher's inbox tick already
+runs after its thread check, so the tick that ends the episode sends it, at the latest the first
+tick past the coordinator's reset time (new field `limit.resets`, T3's `usageLimitResetAt`). Fail
+open: a missing or unreadable file, or one the watcher has not checked for 30 min (new field
+`checked`, written by `scripts/t3-watch.py` on every check), wakes as before. The `Keepalive` retry, the takeover notice, the watcher's other wakes and reports
 with `quietReports` off are not held. An inbox item dropped after 24 h now also writes a
 `failures.log` line, so the watcher tells your user (a weekly limit can outlast the 24 h).
 

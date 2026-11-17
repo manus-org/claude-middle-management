@@ -164,6 +164,9 @@ is "...a key spelled mcp-coord (file-name form) matches too" "$(nhook)/$(items)"
 lim -3600 mcp:coord; dl 1600 important w4 "READY stale file" >/dev/null
 is "the file not checked for 30 min (watcher stopped, T3 API down) -> fail open: wake" "$(nhook)/$(items)" "1/0"
 has "...one digest with everything held" "4 waiting" "$(prompt)"
+reset; coord asleep; lim 0 mcp:coord
+jq --arg r "$(date -u -d "@$((T0 + 5))" +%Y-%m-%dT%H:%M:%S.000Z)" '.limit.resets = {"mcp:coord": $r}' "$ST/t3-watch/default.json" > "$TMP/l.json" && mv "$TMP/l.json" "$ST/t3-watch/default.json"
+dl 10 important w1 "READY after the reset" >/dev/null; is "the coordinator's reset time (limit.resets) has passed -> wake" "$(nhook)" 1
 reset; coord asleep; lim 0 mcp:other
 dl 10 important w1 "READY other thread" >/dev/null; is "a limit on another thread only -> wake as before" "$(nhook)" 1
 reset; coord asleep; printf 'not json' > "$ST/t3-watch/default.json"

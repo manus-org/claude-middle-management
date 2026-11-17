@@ -424,7 +424,10 @@ def check_scope(name, sdir, side, shell, ss):
                     except (OSError, subprocess.TimeoutExpired):
                         log("onLimitCommand failed")
         ep["runs"] = nruns
-        new = [t for i, t in sorted(limited.items()) if i not in ep["notified"]]
+        # read by t3-inbox.py: past a thread's reset time its held digest goes out without waiting
+        # for the next Keepalive to end the episode
+        ep["resets"] = {i: t.get("usageLimitResetAt") for i, t in limited.items() if t.get("usageLimitResetAt")}
+        new =[t for i, t in sorted(limited.items()) if i not in ep["notified"]]
         if new:
             def until(t):
                 u = iso_when(t.get("usageLimitResetAt"))

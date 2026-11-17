@@ -499,7 +499,9 @@ qreset; qitem old status -90000 "a day old" "$CFG/state/scopes/ff/t3-inbox"
 tick 0; is "a scope without sidecar: an item older than 24 h is dropped" "$(ls "$CFG/state/scopes/ff/t3-inbox" | wc -l | tr -d ' ')" 0
 has "...with an inbox.log line" "older than 24 h" "$(cat "$CFG/state/t3-report/inbox.log")"
 # usage limit: held while the coordinator is limited, one digest in the tick that ends the episode
-qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED}]"
+RESET_AT=$(date -u -d "@$((T0 + 7200))" +%Y-%m-%dT%H:%M:%S.000Z)   # the limit resets at +2 h
+LIMITED_NOW="\"status\":\"failed\",\"lastErrorClass\":\"usage_limit\",\"usageLimitResetAt\":\"$RESET_AT\""
+qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED_NOW}]"
 qitem h1 important 0 "READY: held in the limit"; qitem h2 status 5 "status: held too"
 tick 10; is "coordinator usage-limited, asleep, an important item -> held, no wake" "$(nhook)/$(qn)" "0/2"
 OUT=$(tick 20 --dry-run); has "...dry-run says why" "INBOX   scope default: 2 pending (1 important), held (coordinator usage-limited)" "$OUT"
@@ -511,12 +513,16 @@ has "...with the important item" "READY: held in the limit" "$(hooks | tail -1 |
 has "...and the status item" "status: held too" "$(hooks | tail -1 | jq -r .prompt)"
 has "...your user got the limit-over notice" "Limit over" "$(notes)"
 tick 3000; is "...nothing more after it" "$(nhook)" 2
-qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED}]"
+qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED_NOW}]"
 qitem h3 important 0 "READY: T3 API went down"
 tick 10; is "limited -> held" "$(nhook)/$(qn)" "0/1"
 echo 500 > "$TMP/shell.code"; tick 1900
 is "...the T3 API down, the limit file 31 min old -> fail open: the digest goes out" "$(nhook)/$(qn)" "1/0"
 rm -f "$TMP/shell.code"
+qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED_NOW}]"
+qitem h4 important 0 "READY: after the reset"
+tick 10; tick 1300; is "limited, before the reset time -> held" "$(nhook)/$(qn)" "0/1"
+tick 7210; is "...past the reset time (no Keepalive has ended the episode yet) -> the digest goes out" "$(hooks | tail -1 | jq -r .prompt | grep -c 'READY: after the reset')/$(qn)" "1/0"
 cp "$TMP/cfg.bak" "$CFG/middle-management.json"; rm -rf "$QI" "$QS" "$CFG/sessions/c.json"
 
 # ------------------------------------------------------------------------------------------ Z --
