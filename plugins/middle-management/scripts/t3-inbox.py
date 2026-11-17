@@ -33,8 +33,10 @@ coordinator's next tool call, turn start or turn end, or rides along in the next
   the coordinator is usage-limited (t3-watch.py's <cfg>/state/t3-watch/<scope>.json, checked
     < 30 min ago, names its thread in limit.runs, its reset time in limit.resets not yet passed)
                                                                 no wake: held until the limit is over
-  config reviveTakeover allowed and the seat needs a fresh coordinator (fresh_needed: no seat, the
-    holder wrapped, or asleep, idle >= MM_STALE_SEAT_MIN (60) and context >= handoverWarnTokens)
+  config reviveTakeover allowed for this seat (morningRoot's scope, the default one without
+    scopes; every other scope wakes as before) and the seat needs a fresh coordinator
+    (fresh_needed: no seat, the holder wrapped, or asleep, idle >= MM_STALE_SEAT_MIN (60) and
+    context >= handoverWarnTokens; never while a t3-handover is open)
                                                                 no wake: t3-watch.py starts one
   a wake went out < 120 s ago          no wake: its turn's hooks take the rest
   USER item: coordinator busy -> no wake (its hooks hand it in); otherwise wake at once
@@ -94,6 +96,9 @@ HEAD_INJECT = ("Worker reports (quiet): %d arrived without a turn of their own, 
                "your user started this turn: its last text is the full answer to them again, the new point added, "
                "never a one-line addendum.")
 TAIL_INJECT = "(%d more follow with your next tool call or turn)"
+# Under the heads when an item is class user (README "Quiet reports"; SKILL.md says the same).
+FOR_USER_ANSWER = ("Your user's answer below is their own word, not a report: act on it in this turn and "
+                   "answer them.")
 
 
 def settings():
@@ -228,7 +233,8 @@ def housekeep(inbox):
             ilog("dropped", it, "older than 24 h")
             # loud: a report held through a long usage limit must not vanish into inbox.log alone
             failure(it.get("from") or "?", it.get("session"), it.get("thread"),
-                    "dropped from the quiet-report inbox after 24 h undelivered")
+                    "answer dropped from the inbox after 24 h undelivered" if it.get("class") == "user"
+                    else "dropped from the quiet-report inbox after 24 h undelivered")
         else:
             keep.append((p, it))
     return keep
@@ -266,6 +272,8 @@ def pack(items, cap, head, tail):
     """(taken, text): whole items, oldest first, while the text stays within cap chars."""
     n = len(items)
     body, taken = [head % n], []
+    if any(it.get("class") == "user" for _, it in items):
+        body[0] += "\n" + FOR_USER_ANSWER
     size = len(body[0])
     for p, it in items:
         e, left = entry(it), n - len(taken) - 1
@@ -310,12 +318,22 @@ def limited(sdir):
     return limit_until(sdir) is not None
 
 
-def revive_allowed():
+def revive_allowed(sdir):
     """The user's standing word for the daytime takeover (config reviveTakeover, the shape of
-    morningTakeover; orchestrator.sh claim --revive checks the same). Absent = the revive is off."""
-    r = scope.config().get("reviveTakeover")
-    return isinstance(r, dict) and r.get("allowed") is True and isinstance(r.get("okBy"), str) \
-        and bool(r["okBy"].strip())
+    morningTakeover; orchestrator.sh claim --revive checks the same) AND sdir is the seat the
+    takeover task serves: morningRoot's scope with scopes, else the default one (its thread runs
+    in that T3 project, so its claim can only take that seat). Absent = the revive is off; another
+    scope behaves as with the revive off."""
+    c = scope.config()
+    r = c.get("reviveTakeover")
+    if not (isinstance(r, dict) and r.get("allowed") is True and isinstance(r.get("okBy"), str)
+            and r["okBy"].strip()):
+        return False
+    try:
+        served = scope.info(scope.of(c.get("morningRoot") or "", scope.scopes(c)), c)[0]
+    except (scope.Unknown, ValueError):
+        return False
+    return os.path.realpath(served) == os.path.realpath(sdir)
 
 
 def posted_at(sdir, kind):
@@ -383,15 +401,22 @@ def fresh_needed(sdir, sid):
     No seat (no sidecar, and the marker names nobody live); the sidecar's session asleep and
     wrapped (its closed marker); or asleep, quiet for MM_STALE_SEAT_MIN (the claim --revive check)
     and either over handoverWarnTokens (default 250000, 0 = off) or past a missed receipt. The
-    holder is read off disk (peer-state.py), never messaged."""
-    if not sid:
+    holder is read off disk (peer-state.py), never messaged. None, so the wake goes out as before:
+    a sidecar without sessionId (sid ""), and an open t3-handover (the old holder forwards to the
+    successor it named; t3-watch.py tells the user when that hangs)."""
+    if sid is None:
         try:
             with open(os.path.join(sdir, "orchestrator"), encoding="utf-8") as f:
                 holder = f.readline().strip()
         except OSError:
             holder = ""
         return "no coordinator holds the seat" if coordinator(holder) == "asleep" else None
-    if coordinator(sid) != "asleep":
+    try:
+        with open(os.path.join(sdir, "orchestrator.t3.json"), encoding="utf-8") as f:
+            ho = json.load(f).get("handover")
+    except (OSError, ValueError, AttributeError):
+        ho = None
+    if not sid or (isinstance(ho, dict) and ho.get("toThreadId")) or coordinator(sid) != "asleep":
         return None
     r = peer_row(sid)
     if r.get("closed_marker"):
@@ -418,7 +443,7 @@ def held(sdir, sid, hold=False):
     u = limit_until(sdir)
     if u is not None:
         return "usage limit until " + (time.strftime("%H:%M", time.localtime(u)) if u else "the reset")
-    if not sid or missed(sdir, sid) or (revive_allowed() and fresh_needed(sdir, sid)):
+    if sid is None or missed(sdir, sid) or (revive_allowed(sdir) and fresh_needed(sdir, sid)):
         return FRESH
     return None
 

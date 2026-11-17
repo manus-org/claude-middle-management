@@ -585,7 +585,8 @@ changes the worker side of the Stop hook; everything else stays as above.
   `queued: morning coordinator pending`, `queued: a fresh coordinator is needed`, `queued: wake
   failed, the watcher retries`; 4 = queued, but no watcher tick for 30 min (`t3-inbox.tick`), or the
   inbox could not take it: nobody will act, the caller alarms (`NOT delivered (...)`). In the digest
-  it reads "Your user's answer (via <from>, HH:MM)". With `quietReports` off the watcher's inbox
+  it reads "Your user's answer (via <from>, HH:MM)", under a head line telling the coordinator it is
+  your user's own word, to act on and answer in that turn. With `quietReports` off the watcher's inbox
   tick still runs and handles user items only.
 - **The receipt.** HTTP 202 means T3 took the request, not that the thread ran. So a user item woken
   with 202 stays as `<name>.receipt` until the woken session's transcript moves after the wake; the
@@ -609,14 +610,20 @@ coordinator, nobody is woken: the watcher starts one, the way the morning chain 
   --json` (the holder is never messaged): no seat (no sidecar, and the marker names nobody live);
   the sidecar's session asleep and wrapped (its closed marker); or asleep, quiet for
   `MM_STALE_SEAT_MIN` (60 min) AND at or over `handoverWarnTokens` (default 250000, `0` = off), or
-  past a missed receipt. A live coordinator is never replaced. While that holds and the takeover is
-  allowed, `t3-inbox.py` sends no wake for important and user items (`queued: a fresh coordinator is
-  needed`). Without `reviveTakeover` everything wakes as before; only a user item with no seat at all
-  gets one notice per seat episode ("Your answer waits: no coordinator holds the seat").
+  past a missed receipt. A live coordinator is never replaced, and an open `t3-handover` is not
+  either (the old holder is woken and forwards, as before). While that holds and the takeover is
+  allowed for this seat, `t3-inbox.py` sends no wake for important and user items (`queued: a fresh
+  coordinator is needed`). Without `reviveTakeover`, and in every scope the takeover task does not
+  serve (not `morningRoot`'s), everything wakes as before; only a user item with no seat at all gets
+  one notice per seat episode ("Your answer waits: no coordinator holds the seat"), and one waiting
+  30 min on a seat held by a live session without sidecar gets one too.
 - **The start** (`t3-watch.py`, its revive step, every tick after the inbox tick). Guards: the item
-  waits; not usage-limited; no morning or revive post younger than 30 min; the scope is
+  waits; not usage-limited; no morning or revive post younger than 30 min; the morning chain comes
+  first (its trigger waits out a usage limit, or, with `morningTakeover`, `orch-morning-t3.timer`
+  elapses within the hour: the answer then reaches the morning coordinator); the scope is
   `morningRoot`'s (the default scope without scopes: the takeover task runs in that T3 project);
-  one start per seat episode (the sidecar's `sessionId`, or `none`); at most 3 a day. Then
+  one start per seat episode (the sidecar's `sessionId`, or `none`; a takeover that claimed and has
+  not run `t3-bind` yet keeps its episode); at most 3 a day. Then
   `morning-t3.sh --revive`: one `claude -p` probe, no wait (limited → status `limited`, no POST, one
   notice, retried on a later tick), then a POST `{"from":"revive-t3","date":…}` to the webhook task
   in `reviveTaskUrlFile` (local twin first, at `t3Url`). One notice names why: "Starting a fresh

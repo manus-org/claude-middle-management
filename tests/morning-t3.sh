@@ -320,6 +320,11 @@ OUT=$(rtrig); RC=$?; ALL="$ALL$OUT"
 is "the task answers 500 -> exit 1" "$RC/$(rstatus)" "1/failed"; has "...says which thread" "T3 did not start the takeover thread" "$OUT"
 rm -f "$TMP/hook.mode"
 
+rsetup; mkdir -p "$C/state/revive-t3"; printf '%s\tlimited\t1\t1\n' "$(date +%F)" > "$C/state/revive-t3/status"; chmod 555 "$C/state/revive-t3"
+OUT=$(rtrig); RC=$?; ALL="$ALL$OUT"; chmod 755 "$C/state/revive-t3"
+is "the status cannot be written after the 202 -> exit 1 (fail closed: the watcher counts it as a start)" "$RC/$(grep -c "^/api/hooks/task-rv/" "$TMP/hook.log")" "1/1"
+has "...says it could not record the start" "it could not record the start (the takeover thread was started)" "$OUT"
+
 echo "== Z =="
 lacks "no webhook secret in any output" "$SECRET" "$ALL"
 EM=$(printf '\xe2\x80\x94')   # the em dash, spelled as bytes so this file carries none

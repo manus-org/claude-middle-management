@@ -19,12 +19,15 @@ failure episode, not as a worker report "still in that session".
 **A fresh coordinator by day (off unless `reviveTakeover` is set).** When an answer or an important
 report waits and the seat needs a fresh coordinator (no seat; the holder asleep and wrapped; or
 asleep, quiet for `MM_STALE_SEAT_MIN` and at or over `handoverWarnTokens`, or past a missed
-receipt; read off disk with `peer-state.py`), nothing wakes the old one: the watcher's new revive
+receipt; read off disk with `peer-state.py`; never during an open `t3-handover`, and only in the
+scope the takeover task serves, `morningRoot`'s: every other scope wakes as before), nothing wakes
+the old one: the watcher's new revive
 step runs `scripts/morning-t3.sh --revive` (one probe, no wait; status `<seat dir>/revive-t3/status`;
 POST to the T3 webhook task in `reviveTaskUrlFile`, default `~/.config/t3-threads/revive-task-url`)
 and tells your user why in one line. Guards: not usage-limited, no morning or revive post younger
-than 30 min, the scope is `morningRoot`'s (default without scopes), one start per seat episode, at
-most 3 a day; a failed start, a refused claim or no claim within 30 min is one red notice and no
+than 30 min, the morning chain first (its trigger waiting out a limit, or `orch-morning-t3.timer`
+due within the hour), one start per seat episode (kept until the takeover's `t3-bind`), at most 3 a
+day; a failed start, a refused claim or no claim within 30 min is one red notice and no
 retry until the seat changes hands. The thread claims with `orchestrator.sh claim --revive` (the
 `--morning` route with its own word `reviveTakeover` and status file, no morning-ritual line; a
 holder whose wrap closed its session needs no quiet hour). Setup: item 16c and step 8b (the

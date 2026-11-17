@@ -269,5 +269,7 @@ fi
 [ "$CODE" = 202 ] || fail "T3 did not start the $TASK thread" \
   "Check that T3 Code runs and the $TASK task still exists (list_scheduled_tasks), then:" "$RERUN" \
   "the T3 webhook task answered HTTP ${CODE:-000} via the $WHERE URL (expected 202)"
-setstatus posted
+# Fail closed: a status that still said "limited" after this 202 would make the watcher post again.
+setstatus posted || fail "it could not record the start (the $TASK thread was started)" \
+  "Check the folder's permissions:" "ls -ld $STATE" "cannot write $STATUS"
 echo "morning-t3: $TASK thread started (HTTP 202)${WAITED:+ after a usage-limit wait}"

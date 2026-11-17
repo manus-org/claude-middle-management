@@ -18,6 +18,9 @@
 #      limit, morning post, once per seat episode, 3 a day), probe limited, a failed start, refused /
 #      no claim within 30 min, revive off; a user's answer held in a limit (one notice per episode,
 #      delivered after it), the 15-min receipt, the answer line of "report lost"
+#   R3 the morning chain first (trigger waiting, timer within the hour), a scope it does not serve,
+#      an open handover, a takeover that died before t3-bind, a live seat without sidecar, a post
+#      before midnight, one limit notice per episode, a dropped answer in "report lost"
 #   Z  no webhook URL or token in any output
 # One local HTTP stub serves both the T3 shell (GET, checks the protocol header and the bearer) and
 # the webhook (POST, answers 202, 429 or sleeps past the timeout). `claude` is a stub on PATH.
@@ -631,6 +634,63 @@ has "...nothing to do" "Nothing to do now." "$(notes)"
 lacks "...not the worker text" "still in that session" "$(notes)"
 cp "$TMP/cfg.bak" "$CFG/middle-management.json"; rm -rf "$QI" "$CFG/state/revive-t3" "$TXD"; rm -f "$QS" "$CFG/sessions/c.json"; sidecar mcp:coord
 
+echo "R3. review round 1: the morning chain first, other scopes, an open handover, the lows"
+mkdir -p "$TXD"
+# systemctl stub: prints the morning timer's next elapse from $TMP/timer.next (nothing = no timer)
+printf '#!/bin/sh\n[ -s "%s/timer.next" ] && cat "%s/timer.next"\nexit 0\n' "$TMP" "$TMP" > "$TMP/bin/systemctl"; chmod +x "$TMP/bin/systemctl"
+nxt() { date -d "@$((T0 + $1))" "+%a %Y-%m-%d %H:%M:%S %Z" > "$TMP/timer.next"; }
+mwait() {  # $1 = pid: today's morning trigger waits out a usage limit
+  mkdir -p "$CFG/state/morning-t3"; printf '%s\twaiting\t%s\t%s\n' "$(date -d "@$T0" +%F)" "$T0" "$1" > "$CFG/state/morning-t3/status"; }
+sleep 600 >/dev/null 2>&1 </dev/null & MW=$!
+rreset; ctx 400000 -7200; qitem u1 user 0 "morning waits"; mwait "$MW"
+tick 10; is "the morning trigger waits out a limit (pid alive) -> no fresh coordinator, the answer stays queued" "$(nhook)/$(qn)" "0/1"
+kill "$MW" 2>/dev/null; wait "$MW" 2>/dev/null
+tick 610; is "...its pid is gone -> a fresh coordinator" "$(froms)" "revive-t3 "
+rreset; ctx 400000 -7200; qitem u1 user 0 "morning soon"; nxt 1800
+jq '. + {morningTakeover: {allowed: true, okBy: "Alex, 2026-10-21"}}' "$TMP/cfg.rev" > "$CFG/middle-management.json"
+tick 10; is "morningTakeover on, the morning timer elapses in 30 min -> no fresh coordinator" "$(nhook)/$(qn)" "0/1"
+nxt 7200; tick 20; is "...in 2 h -> a fresh coordinator" "$(froms)" "revive-t3 "
+rreset; ctx 400000 -7200; qitem u1 user 0 "no timer"; : > "$TMP/timer.next"
+jq '. + {morningTakeover: {allowed: true, okBy: "Alex, 2026-10-21"}}' "$TMP/cfg.rev" > "$CFG/middle-management.json"
+tick 10; is "...no morning timer -> a fresh coordinator" "$(froms)" "revive-t3 "
+# a scope the takeover task does not serve: ff, while morningRoot is the default project
+rreset; FS=$CFG/state/scopes/ff; mkdir -p "$FS"; cp "$SIDE" "$FS/"; ctx 400000 -7200; qitem f1 user 0 "scope ff" "$FS/t3-inbox"
+tick 10; is "revive on, scope ff is not morningRoot's, cold and large -> no start there, the answer is woken as before" "$(froms)/$(find "$FS/t3-inbox" -name '*.json' | wc -l | tr -d ' ')" "t3-watch /0"
+rm -rf "$FS"
+rreset; ctx 400000 -7200; qitem u1 user 0 "handover"
+jq '.handover = {toThreadId: "mcp:c2", toTitle: "Koordinator 2", since: 1}' "$SIDE" > "$SIDE.x" && mv "$SIDE.x" "$SIDE" && chmod 600 "$SIDE"
+tick 10; is "an open t3-handover, cold and large -> no fresh one, the old holder is woken" "$(froms)" "t3-watch "
+sidecar mcp:coord
+# L3: claim --revive dropped the sidecar, the new thread died before t3-bind
+rreset; ctx 400000 -7200; qitem u1 user 0 "dead takeover"
+tick 10; rposted claimed 20; rm -f "$SIDE"; echo sess-dead > "$CFG/state/orchestrator"
+tick 610; is "the takeover claimed, dropped the sidecar and died -> no second start in that episode" "$(nhook)" 1
+has "...one notice: nobody holds the seat" "the fresh coordinator started for it did not bind the seat" "$(notes)"
+tick 1210; is "...once" "$(grep -c 'did not bind the seat' "$TMP/notify.log")" 1
+sidecar mcp:coord
+# L3: a live session without sidecar holds the marker; a user item 30 min old -> one notice
+rreset; rm -f "$SIDE"; qitem u1 user 0 "outside T3"; echo sid-live > "$CFG/state/orchestrator"; touch -d "@$((T0 - 3600))" "$CFG/state/orchestrator"
+sleep 600 >/dev/null 2>&1 </dev/null & LV=$!
+printf '{"pid":%s,"sessionId":"sid-live","kind":"interactive"}\n' "$LV" > "$CFG/sessions/live.json"
+tick 600; is "a live holder without sidecar, the answer 10 min old -> nothing yet" "$(nnote)/$(nhook)" "0/0"
+tick 1900; has "...30 min old -> one notice" "🔴 Your answer waits: the coordinator cannot receive it" "$(notes)"
+tick 2500; is "...once" "$(grep -c 'cannot receive it' "$TMP/notify.log")/$(nhook)" "1/0"
+kill "$LV" 2>/dev/null; wait "$LV" 2>/dev/null; rm -f "$CFG/sessions/live.json"; sidecar mcp:coord
+# L2: a takeover posted shortly before midnight that never claims is still reported after it
+rreset; rm -f "$SIDE"; mkdir -p "$CFG/state/revive-t3"
+printf '%s\tposted\t%s\t1\n' "$(date -d "@$((T0 - 86400))" +%F)" "$((T0 - 3000))" > "$CFG/state/revive-t3/status"
+tick 10; has "a post from yesterday, 50 min ago, never claimed -> the red notice" "it has not claimed the seat within 30 min" "$(notes)"
+sidecar mcp:coord
+# L5: a second limit episode gets its own notice
+rreset; ctx 400000 -7200; qitem u1 user 0 "limit one"; echo limit > "$TMP/probe.mode"
+tick 10; rm -f "$QI"/*.json; tick 610; qitem u2 user 600 "limit two"; tick 1210
+is "the limit notice once per limit episode (the queue emptied in between)" "$(grep -c 'starts once the usage limit' "$TMP/notify.log")" 2
+# L1: the watcher names a dropped answer as an answer
+reset; printf '%s\tworkbench-alex\t-\tunknown\tanswer dropped from the inbox after 24 h undelivered\n' "$(date -Is)" >> "$CFG/state/t3-report/failures.log"
+tick 0; has "report lost: a dropped answer -> named as your answer" "your answer: dropped after 24 h undelivered" "$(notes)"
+lacks "...not as a worker report" "worker report" "$(notes)"
+rm -f "$TMP/bin/systemctl" "$TMP/timer.next"
+cp "$TMP/cfg.bak" "$CFG/middle-management.json"; rm -rf "$QI" "$CFG/state/revive-t3" "$CFG/state/morning-t3" "$TXD"; rm -f "$QS" "$CFG/sessions/c.json" "$CFG/state/orchestrator"; sidecar mcp:coord
 # ------------------------------------------------------------------------------------------ Z --
 echo "Z. secrets"
 ALL=$(cat "$TMP/notify.log" "$TMP/stderr.log" "$CFG/state/t3-report/"* "$CFG/state/t3-watch/"* 2>/dev/null)

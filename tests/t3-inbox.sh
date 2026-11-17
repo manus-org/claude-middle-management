@@ -22,6 +22,8 @@
 #      decision by idle time AND context size (both sides of each threshold), a wrapped holder,
 #      reviveTakeover off -> wake as before, the receipt (moved -> gone, 15 min unmoved -> queued again,
 #      no further wake into that session), quietReports off, the local twin built from t3Url
+#   U5 a scope the takeover does not serve wakes as before; an open t3-handover wakes the holder; a
+#      sidecar without sessionId wakes as in 0.19.3; the head line for a user item; the 24-h drop line
 #   Z  no webhook secret anywhere
 # The clock is T3W_NOW; the coordinator's registry entry points at a sleep process (live) or is gone.
 set -uo pipefail
@@ -472,6 +474,32 @@ cfgj '{}'
 RC=$(T3_WAKE_NO_LOCAL="" T3_WAKE_RELAY_PREFIX=https://relay.invalid/v1/hooks/ T3CODE_PORT=1 du 200 "no twin")
 is "...without t3Url: 127.0.0.1:\$T3CODE_PORT, nobody there, the relay fails -> queued" "${RC%%|*}/$(nhook)" "9/1"
 mv -f "$TMP/side.bak" "$ST/orchestrator.t3.json"; cfgj '{"quietReports":{"enabled":true}}'
+
+echo "U5. review round 1: other scopes, an open handover, no sessionId, the head line, the 24-h drop"
+cfgj "{\"quietReports\":{\"enabled\":true},$REV,\"scopes\":[{\"name\":\"ff\",\"root\":\"$TMP/ffroot\",\"board\":\"$TMP/ff.md\"}]}"
+reset; coord asleep; fresh 0; ctx 400000 -7200; mkdir -p "$ST/scopes/ff"; cp "$ST/orchestrator.t3.json" "$ST/scopes/ff/"
+printf 'scope ff answer' > "$TMP/u.txt"
+env_ T3W_NOW=$((T0 + 10)) MM_SESSION_ID="" MM_SCOPE_CWD="$TMP" python3 "$IB" deliver "$ST/scopes/ff" user workbench-alex "$TMP/u.txt" 2>>"$TMP/stderr.log"
+is "revive on, a scope the takeover task does not serve (not morningRoot's), cold and large -> wake as with revive off" "$?/$(nhook)" "0/1"
+is "...the served (default) scope with the same holder -> held" "$(du 200 "default scope")" "9|t3-inbox: queued: a fresh coordinator is needed"
+rm -rf "$ST/scopes"; cfgj "{\"quietReports\":{\"enabled\":true},$REV}"
+reset; coord asleep; fresh 0; ctx 400000 -7200; cp "$ST/orchestrator.t3.json" "$TMP/side.bak"
+jq '.handover = {toThreadId: "mcp:next", toTitle: "Next", since: 1}' "$TMP/side.bak" > "$ST/orchestrator.t3.json"; chmod 600 "$ST/orchestrator.t3.json"
+is "an open t3-handover, cold and large -> no fresh one, the old holder is woken (it forwards)" "$(du 10 "during the handover")/$(nhook)" "0|/1"
+jq 'del(.sessionId)' "$TMP/side.bak" > "$ST/orchestrator.t3.json"; chmod 600 "$ST/orchestrator.t3.json"
+reset; coord asleep; fresh 0
+is "a sidecar without sessionId, an important report -> wake as in 0.19.3" "$(dl 10 important w1 "READY no sid")/$(nhook)" "0/1"
+mv -f "$TMP/side.bak" "$ST/orchestrator.t3.json"
+reset; coord asleep; fresh 0; ctx 100000 -60
+du 10 "head line" >/dev/null
+has "a digest with a user item -> the line that it is your user's own word, under the head" "$FC
+Your user's answer below is their own word, not a report: act on it in this turn and answer them." "$(prompt)"
+reset; coord busy; fresh 0; du 10 "inject head" >/dev/null
+OUT=$(inj 20 "$(ev PostToolUse)"); has "...in the inject text too" "Your user's answer below is their own word" "$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")"
+reset; coord busy; fresh 0; du 0 "a day old" >/dev/null
+OUT=$(inj 90000 "$(ev PostToolUse)")
+has "a user item dropped after 24 h -> named as an answer in failures.log" "	workbench-alex	-	unknown	answer dropped from the inbox after 24 h undelivered" "$(cat "$ST/t3-report/failures.log")"
+cfgj '{"quietReports":{"enabled":true}}'
 
 # ------------------------------------------------------------------------------------------ Z --
 echo "Z. secrets"

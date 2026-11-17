@@ -53,13 +53,17 @@ and for every scope, also when the T3 API is down (it needs only the inbox and t
                  claim is pending); with quietReports off it handles user items only
   revive         an important or user item waits AND t3-inbox.py fresh_needed() (no seat, the holder
                  wrapped, or asleep, quiet >= MM_STALE_SEAT_MIN and over handoverWarnTokens or past
-                 a missed receipt) AND not limited AND no morning or revive post under 30 min old AND
+                 a missed receipt; never while a t3-handover is open) AND not limited AND no morning
+                 or revive post under 30 min old AND the morning chain does not come first (its
+                 trigger waits out a limit, or orch-morning-t3.timer elapses within the hour) AND
                  config reviveTakeover allowed AND the scope is morningRoot's (default without
                  scopes) -> morning-t3.sh --revive, one notify naming why. Latch: one start per seat
-                 episode (the sidecar's sessionId, or "none"), at most 3 a day. Its status "limited"
+                 episode (the sidecar's sessionId, or "none"; kept while a claim --revive has dropped
+                 the sidecar until t3-bind), at most 3 a day. Its status "limited"
                  -> one notify, retried on a later tick; a failed start, "refused", or no claim
                  within 30 min of "posted" -> one red notify, no retry until the seat changes hands.
-                 Revive off and no seat -> one notify per seat episode for a waiting user item.
+                 Revive off and no seat -> one notify per seat episode for a waiting user item; a
+                 seat held by a live session without sidecar, a user item 30 min old -> one notify.
 It runs after the scope checks, so while <cfg>/state/t3-watch/<scope>.json names the coordinator in
 limit.runs (and the reset time in limit.resets has not passed) t3-inbox.py holds the digest; the
 tick that ends the episode, or the first one past the reset time, sends it.
@@ -84,6 +88,7 @@ NOW = float(os.environ.get("T3W_NOW") or time.time())
 TODAY = time.strftime("%Y-%m-%d", time.localtime(NOW))
 RETRY_S, CLICK_S, STUCK_S, HANDOVER_S = 30 * 60, 10 * 60, 3 * 3600, 30 * 60
 MORNING_HOLD_S = 30 * 60   # the morning hold ends at the latest 30 min after the post (hooks/t3-report.sh too)
+MORNING_SOON_S = 60 * 60   # no daytime takeover within the hour before the morning timer
 REQUIRED = ("id", "projectId", "title", "status", "activityRunStatus", "activeRunId", "latestRunId",
             "lastError", "lastErrorClass", "usageLimitResetAt", "pendingRuntimeRequest", "itemCount",
             "settledAt", "archivedAt", "modelSelection")
@@ -558,10 +563,11 @@ def report_lost(gstate):
         for i, ln in enumerate(lines):
             c = (ln.split("\t") + [""] * 5)[:5]      # time, from, session id, thread id, reason
             kind = "digest" if c[4].startswith("digest wake failed") else "answer" \
-                if c[4].startswith("answer wake failed") else "watcher" if c[1] == "t3-watch" else "session"
+                if c[4].startswith("answer wake failed") else "dropped" if c[4].startswith("answer dropped") \
+                else "watcher" if c[1] == "t3-watch" else "session"
             kinds.add(kind)
             if i < 10:
-                who = {"digest": "quiet-report digest", "answer": "your answer",
+                who = {"digest": "quiet-report digest", "answer": "your answer", "dropped": "your answer",
                        "watcher": "the watcher's notice"}.get(kind) \
                     or cut(c[1] or "a session")
                 facts.append("• %s: %s" % (" ".join(x for x in (iso_when(c[0]), who) if x), why(c[4])))
@@ -570,6 +576,8 @@ def report_lost(gstate):
         facts.append("")
         if "session" in kinds:
             facts.append("A report from a session is still in that session: read it there, or ask the coordinator to.")
+        if "dropped" in kinds:
+            facts.append("An answer dropped after 24 h is not lost where you gave it: give it again, or ask the coordinator to read it there.")
         if "watcher" in kinds:
             facts += ["The watcher retries its usage-limit notices every 30 min.",
                       "A notice about a failed session is not retried: check T3 for failed sessions."]
@@ -589,6 +597,8 @@ def why(reason):
         return code + "; the reports stay queued and are retried every 10 min"
     if reason.startswith("answer wake failed"):        # a user item: queued, never handed back
         return code + "; it stays queued and is retried every 10 min"
+    if reason.startswith("answer dropped"):
+        return "dropped after 24 h undelivered"
     if "quiet digest wake" in reason:
         return code + "; the report went back to its session"
     if reason.startswith("held: the morning thread"):
@@ -598,16 +608,41 @@ def why(reason):
     return code if re.fullmatch(r"http \d+", reason) else cut(reason, 80)
 
 
-def revive_scope(ss):
-    """The scope morning-t3.sh --revive serves: morningRoot's with scopes, else "default". The takeover
-    task runs in that T3 project, so its claim can only take that seat."""
+def stamp_of(path):
     try:
-        return scope.of(CFG.get("morningRoot") or "", ss)
-    except scope.Unknown:
-        return None
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
 
 
-def revive(name, sdir, missed, rscope):
+def morning_first(sdir):
+    """True while the morning chain is about to own the seat, so no daytime takeover may race it:
+    today's trigger waits out a usage limit (morning-t3/status "waiting", its pid alive), or, with
+    morningTakeover allowed, orch-morning-t3.timer elapses within the hour (systemctl --user show;
+    no systemd or no timer = no hold). The "posted" window is INBOX.posted_at's."""
+    try:
+        with open(os.path.join(sdir, "morning-t3", "status"), encoding="utf-8") as f:
+            day, state, _, pid = (f.readline().rstrip("\n").split("\t") + ["", "", "", ""])[:4]
+        if day == TODAY and state == "waiting":
+            os.kill(int(pid), 0)
+            return True
+    except (OSError, ValueError):
+        pass
+    mt = CFG.get("morningTakeover")
+    if not (isinstance(mt, dict) and mt.get("allowed") is True):
+        return False
+    try:
+        out = subprocess.run(["systemctl", "--user", "show", "orch-morning-t3.timer", "-p",
+                              "NextElapseUSecRealtime", "--value"], capture_output=True, text=True,
+                             timeout=10).stdout
+        m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", out)
+        at = time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")) if m else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        at = None
+    return at is not None and 0 <= at - NOW <= MORNING_SOON_S
+
+
+def revive(name, sdir, missed):
     """The revive step of one scope (docstring "revive"). missed = the sessions receipts() found
     unmoved 15 min after a 202. State: <scope>.json key "revive"."""
     st_path = os.path.join(STATE_DIR, name + ".json")
@@ -617,9 +652,11 @@ def revive(name, sdir, missed, rscope):
     key = sid or "none"
     rv = dict(rv0) if rv0.get("key") == key else {
         "key": key, "day": rv0.get("day"), "count": rv0.get("count", 0), "outcome": rv0.get("outcome")}
+    if key == "none" and rv0.get("key") != key and rv0.get("started"):
+        rv["started"] = rv0["started"]  # claim --revive dropped the sidecar: same episode until t3-bind
     if rv.get("day") != TODAY:
         rv["day"], rv["count"] = TODAY, 0
-    allowed = INBOX.revive_allowed() and name == rscope
+    allowed = INBOX.revive_allowed(sdir)
     again = "Or start a coordinator session and run /orchestrator claim in it."
 
     # the outcome of the last post: refused, or no claim within 30 min (once per post)
@@ -629,7 +666,7 @@ def revive(name, sdir, missed, rscope):
         at = float(at)
     except (OSError, ValueError):
         day, state, at = "", "", 0.0
-    if day == TODAY and rv.get("outcome") != at and (
+    if 0 < NOW - at < 86400 and rv.get("outcome") != at and (
             state == "refused" or (state == "posted" and NOW - at >= MORNING_HOLD_S)):
         notify(name, "🔴 The fresh coordinator did not take the seat", [
             "Started at %s; %s." % (when(at), "its claim was refused" if state == "refused"
@@ -648,9 +685,21 @@ def revive(name, sdir, missed, rscope):
             rv["missed"] = m
 
     kinds = INBOX.waiting(sdir)
+    if not kinds & {"user", "important"}:
+        rv.pop("limit_told", None)          # the next usage limit is a new episode
     why = INBOX.fresh_needed(sdir, sid) if kinds & {"user", "important"} else None
+    # a seat held by a live session without sidecar (outside T3, or a takeover before its t3-bind):
+    # inject needs a sidecar, so a user item that waited 30 min gets one notice per seat episode
+    if not why and sid is None and "user" in kinds and not rv.get("told") and min(
+            (INBOX.num(it.get("at"), NOW) for _, it in INBOX.pending(os.path.join(sdir, "t3-inbox"), drop=False)
+             if it.get("class") == "user"), default=NOW) <= NOW - MORNING_HOLD_S \
+            and NOW - stamp_of(os.path.join(sdir, "orchestrator")) >= 600:     # not a claim minutes ago
+        notify(name, "🔴 Your answer waits: the coordinator cannot receive it", [
+            "It stays saved and queued; its session has no T3 seat binding (outside T3, or a takeover that never ran t3-bind).",
+            "Have the coordinator run /orchestrator t3-bind in T3, or start a coordinator session there and run /orchestrator claim in it."])
+        rv["told"] = True
     if why and not (INBOX.limited(sdir) or INBOX.posted_at(sdir, "morning-t3") is not None
-                    or INBOX.posted_at(sdir, "revive-t3") is not None):
+                    or INBOX.posted_at(sdir, "revive-t3") is not None or (allowed and morning_first(sdir))):
         what = "your answer" if "user" in kinds else "a worker report"
         if not allowed:
             # the wake path covers the rest; a seat nobody holds cannot be woken
@@ -659,8 +708,11 @@ def revive(name, sdir, missed, rscope):
                     "It stays saved and queued.",
                     "Start a coordinator session and run /orchestrator claim in it: the answer reaches it at its first step."])
                 rv["told"] = True
-        elif rv.get("started"):
-            pass                        # one start per seat episode
+        elif rv.get("started"):         # one start per seat episode; nobody on the seat: say so once
+            if "user" in kinds and not sid and not rv.get("told"):
+                notify(name, "🔴 Your answer waits: no coordinator holds the seat", [
+                    "It stays saved and queued; the fresh coordinator started for it did not bind the seat.", again])
+                rv["told"] = True
         elif rv["count"] >= 3:
             if rv.get("capped") != TODAY:
                 notify(name, "🔴 No fresh coordinator: 3 were started today already", [
@@ -687,6 +739,7 @@ def revive(name, sdir, missed, rscope):
                            % (what[0].upper() + what[1:]), ["The watcher checks again every 10 min.", "Nothing to do."])
                     rv["limit_told"] = True
             elif rc == 0 and state == "posted":
+                rv.pop("limit_told", None)
                 rv["started"], rv["count"] = NOW, rv["count"] + 1
                 notify(name, "🟡 Starting a fresh coordinator for %s (%s)" % (what, why), [
                     "It takes the seat, reads the board and its predecessor, then works what waits.",
@@ -773,12 +826,11 @@ def main(argv):
                 for n, sdir, side in work:
                     check_scope(n, sdir, side, shell, ss)
         topics_tick(names)
-        rscope = revive_scope(ss)
         for n in names:     # with quietReports off the tick handles user items only (t3-inbox.py)
             sdir = scope.info(n, CFG)[0]
             missed = [] if DRY else INBOX.receipts(sdir)
             INBOX.tick(n, sdir, dry=DRY, hold=morning_pending(sdir))
-            revive(n, sdir, missed, rscope)
+            revive(n, sdir, missed)
         gstate.get("since", {}).pop("internal", None)    # a whole tick without an internal error
     except Exception as e:      # never a crash loop: one notify per day, then exit 0
         if gstate.setdefault("api", {}).get("internal") != TODAY:
