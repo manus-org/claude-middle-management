@@ -55,7 +55,8 @@ and for every scope, also when the T3 API is down (it needs only the inbox and t
                  wrapped, or asleep, quiet >= MM_STALE_SEAT_MIN and over handoverWarnTokens or past
                  a missed receipt; never while a t3-handover is open) AND not limited AND no morning
                  or revive post under 30 min old AND the morning chain does not come first (its
-                 trigger waits out a limit, or orch-morning-t3.timer elapses within the hour) AND
+                 trigger waits out a limit, or orch-morning-t3.timer elapses within
+                 MM_STALE_SEAT_MIN + 1 h) AND
                  config reviveTakeover allowed AND the scope is morningRoot's (default without
                  scopes) -> morning-t3.sh --revive, one notify naming why. Latch: one start per seat
                  episode (the sidecar's sessionId, or "none"; kept while a claim --revive has dropped
@@ -88,7 +89,6 @@ NOW = float(os.environ.get("T3W_NOW") or time.time())
 TODAY = time.strftime("%Y-%m-%d", time.localtime(NOW))
 RETRY_S, CLICK_S, STUCK_S, HANDOVER_S = 30 * 60, 10 * 60, 3 * 3600, 30 * 60
 MORNING_HOLD_S = 30 * 60   # the morning hold ends at the latest 30 min after the post (hooks/t3-report.sh too)
-MORNING_SOON_S = 60 * 60   # no daytime takeover within the hour before the morning timer
 REQUIRED = ("id", "projectId", "title", "status", "activityRunStatus", "activeRunId", "latestRunId",
             "lastError", "lastErrorClass", "usageLimitResetAt", "pendingRuntimeRequest", "itemCount",
             "settledAt", "archivedAt", "modelSelection")
@@ -618,7 +618,8 @@ def stamp_of(path):
 def morning_first(sdir):
     """True while the morning chain is about to own the seat, so no daytime takeover may race it:
     today's trigger waits out a usage limit (morning-t3/status "waiting", its pid alive), or, with
-    morningTakeover allowed, orch-morning-t3.timer elapses within the hour (systemctl --user show;
+    morningTakeover allowed, orch-morning-t3.timer elapses within MM_STALE_SEAT_MIN plus an hour
+    (default 2 h: the takeover's work, then the quiet claim --morning needs; systemctl --user show;
     no systemd or no timer = no hold). The "posted" window is INBOX.posted_at's."""
     try:
         with open(os.path.join(sdir, "morning-t3", "status"), encoding="utf-8") as f:
@@ -639,7 +640,9 @@ def morning_first(sdir):
         at = time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")) if m else None
     except (OSError, subprocess.TimeoutExpired, ValueError):
         at = None
-    return at is not None and 0 <= at - NOW <= MORNING_SOON_S
+    # the window: an hour of work plus the quiet time claim --morning needs (MM_STALE_SEAT_MIN, the
+    # same value t3-inbox.py reads), so a takeover is quiet enough for the morning claim at timer time
+    return at is not None and 0 <= at - NOW <= INBOX.STALE_S + 3600
 
 
 def revive(name, sdir, missed):

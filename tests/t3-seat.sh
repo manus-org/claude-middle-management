@@ -385,6 +385,12 @@ printf '## %s\n\n### %s – [c1] – day\n- Status: completed\n- Session: closed
 OUT=$(as_s "$H" r1 "$H" claim --morning); has "wrapped 5 min ago: --morning still refuses (the hour)" "REFUSED (--morning)" "$OUT"
 OUT=$(as_s "$H" r1 "$H" claim --revive); has "...--revive takes it (its wrap closed it)" "DAYTIME TAKEOVER" "$OUT"
 has "...saying why" "its wrap closed its session" "$OUT"; lacks "...no second wrap entry" "BACKFILLED" "$OUT"
+# a takeover posted before midnight that claims after it -> claimed (the watcher reads 24 h)
+g_home "3 hours ago"; rv_word; mkdir -p "$H/.claude/state/revive-t3"
+printf '%s\tposted\t%s\t1\n' "$(date -d yesterday +%F)" "$(( $(date +%s) - 600 ))" > "$H/.claude/state/revive-t3/status"
+as_s "$H" r1 "$H" claim --revive >/dev/null; is "a revive post from yesterday, 10 min ago -> claimed" "$(cut -f2 "$H/.claude/state/revive-t3/status")" claimed
+g_home "3 hours ago"; mkdir -p "$H/.claude/state/morning-t3"; printf '%s\tposted\t%s\t1\n' "$(date -d yesterday +%F)" "$(( $(date +%s) - 600 ))" > "$H/.claude/state/morning-t3/status"
+as_s "$H" m1 "$H" claim --morning >/dev/null; is "...the morning status of yesterday stays as it was (the morning route reads today only)" "$(cut -f2 "$H/.claude/state/morning-t3/status")" posted
 # no seat holder at all: --revive just claims
 H=$(new_home); printf '{"reviveTakeover":{"allowed":true,"okBy":"Alex, 2026-11-17"}}\n' > "$H/.claude/middle-management.json"
 OUT=$(as_s "$H" r1 "$H" claim --revive); has "no holder -> --revive claims" "OK: this session" "$OUT"

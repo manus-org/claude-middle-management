@@ -649,7 +649,8 @@ tick 610; is "...its pid is gone -> a fresh coordinator" "$(froms)" "revive-t3 "
 rreset; ctx 400000 -7200; qitem u1 user 0 "morning soon"; nxt 1800
 jq '. + {morningTakeover: {allowed: true, okBy: "Alex, 2026-10-21"}}' "$TMP/cfg.rev" > "$CFG/middle-management.json"
 tick 10; is "morningTakeover on, the morning timer elapses in 30 min -> no fresh coordinator" "$(nhook)/$(qn)" "0/1"
-nxt 7200; tick 20; is "...in 2 h -> a fresh coordinator" "$(froms)" "revive-t3 "
+nxt 5400; tick 20; is "...in 90 min (inside MM_STALE_SEAT_MIN + 1 h) -> still no fresh coordinator" "$(nhook)" 0
+nxt 10800; tick 30; is "...in 3 h -> a fresh coordinator" "$(froms)" "revive-t3 "
 rreset; ctx 400000 -7200; qitem u1 user 0 "no timer"; : > "$TMP/timer.next"
 jq '. + {morningTakeover: {allowed: true, okBy: "Alex, 2026-10-21"}}' "$TMP/cfg.rev" > "$CFG/middle-management.json"
 tick 10; is "...no morning timer -> a fresh coordinator" "$(froms)" "revive-t3 "

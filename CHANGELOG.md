@@ -7,9 +7,9 @@
 `user`: `MM_SESSION_ID="" scripts/t3-inbox.py deliver <marker dir> user <from> <file>`. The item is
 written first, also without a sidecar and with `quietReports` off, never handed back, and wakes the
 coordinator at once (no debounce, no fallback wait) unless it is busy. Exit 0 delivered, 9 queued
-(`queued: usage limit until HH:MM` / `morning coordinator pending` / `a fresh coordinator is needed` /
-`wake failed, the watcher retries`), 4 queued but no watcher tick for 30 min or the inbox could not
-take it (the caller alarms). A user item woken with HTTP 202 is kept as a receipt until the woken
+(last stderr line `t3-inbox: queued: <reason>`: `usage limit until HH:MM` / `morning coordinator
+pending` / `a fresh coordinator is needed` / `wake failed, the watcher retries`), 4 queued but no
+watcher tick for 30 min or the inbox could not take it (the caller alarms). A user item woken with HTTP 202 is kept as a receipt until the woken
 session's transcript moves; unmoved after 15 min it goes back into the queue, no further wake goes
 into that session, and your user gets one notice. While the coordinator is usage-limited the
 watcher sends one line per limit episode: "Your answer is saved: it reaches the coordinator after
@@ -26,7 +26,7 @@ step runs `scripts/morning-t3.sh --revive` (one probe, no wait; status `<seat di
 POST to the T3 webhook task in `reviveTaskUrlFile`, default `~/.config/t3-threads/revive-task-url`)
 and tells your user why in one line. Guards: not usage-limited, no morning or revive post younger
 than 30 min, the morning chain first (its trigger waiting out a limit, or `orch-morning-t3.timer`
-due within the hour), one start per seat episode (kept until the takeover's `t3-bind`), at most 3 a
+due within `MM_STALE_SEAT_MIN` plus an hour), one start per seat episode (kept until the takeover's `t3-bind`), at most 3 a
 day; a failed start, a refused claim or no claim within 30 min is one red notice and no
 retry until the seat changes hands. The thread claims with `orchestrator.sh claim --revive` (the
 `--morning` route with its own word `reviveTakeover` and status file, no morning-ritual line; a

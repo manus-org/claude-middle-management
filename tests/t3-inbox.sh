@@ -489,6 +489,8 @@ is "an open t3-handover, cold and large -> no fresh one, the old holder is woken
 jq 'del(.sessionId)' "$TMP/side.bak" > "$ST/orchestrator.t3.json"; chmod 600 "$ST/orchestrator.t3.json"
 reset; coord asleep; fresh 0
 is "a sidecar without sessionId, an important report -> wake as in 0.19.3" "$(dl 10 important w1 "READY no sid")/$(nhook)" "0/1"
+reset; coord asleep; fresh 0
+is "...a user item -> woken, no receipt kept (nothing could confirm it: no re-wake loop)" "$(du 10 "no sid answer")/$(nhook)/$(receipts)/$(items)" "0|/1/0/0"
 mv -f "$TMP/side.bak" "$ST/orchestrator.t3.json"
 reset; coord asleep; fresh 0; ctx 100000 -60
 du 10 "head line" >/dev/null

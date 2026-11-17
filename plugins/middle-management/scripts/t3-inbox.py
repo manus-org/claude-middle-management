@@ -19,8 +19,9 @@ Usage: t3-inbox.py deliver <marker dir> <important|status|user> <from> <file wit
          own report was taken back out of the inbox, the caller tells its session to send it itself
          user (a sender that is no session, the text is the user's own answer): exit 0 delivered (a
          wake got 202, a wake is under way, or the coordinator is busy and its hooks hand it in) ·
-         9 queued, the watcher acts on it (stderr "queued: <reason>") · 4 queued, but no watcher
-         ran for 30 min, or the inbox could not take it (stderr "NOT delivered (<reason>)") · 64 usage
+         9 queued, the watcher acts on it (stderr "t3-inbox: queued: <reason>") · 4 queued, but no
+         watcher ran for 30 min, or the inbox could not take it (stderr "t3-inbox: NOT delivered
+         (<reason>)") · 64 usage
        t3-inbox.py inject   the hook input on stdin (PostToolUse, UserPromptSubmit or Stop)
 
 With config quietReports.enabled (hooks/t3-report.sh decides), a worker's report is one item file
@@ -572,7 +573,8 @@ def run(inbox, sid, from_, env, own=None, hold=False, dry=False, label="", start
     if rc == 0:
         for c, it in claimed:
             with contextlib.suppress(OSError):
-                if it.get("class") == "user":     # kept until the woken session moves (receipts())
+                if it.get("class") == "user" and sid:   # kept until the woken session moves (receipts());
+                    # ponytail: a sidecar without sessionId has no transcript to confirm: deleted as before
                     write_item(c.split(".claimed.")[0][:-len(".json")] + ".receipt",
                                dict(it, woken=NOW, wokenSession=sid))
                 os.unlink(c)

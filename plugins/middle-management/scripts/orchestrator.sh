@@ -277,8 +277,11 @@ backfill() {
 morning_outcome() {
   local rc=$? f d st state cmd msg
   f="$(dirname "$MARKER")/$([ -n "$REVIVE" ] && echo revive || echo morning)-t3/status"
-  IFS=$'\t' read -r d st _ < "$f" 2>/dev/null || return 0
-  [ "$d" = "$(date +%F)" ] && [ "$st" = posted ] && [ -z "${RACE_LOST:-}" ] || return 0
+  IFS=$'\t' read -r d st at _ < "$f" 2>/dev/null || return 0
+  # --revive: a post from before midnight counts too (t3-watch.py reads its outcome for 24 h)
+  case "$at" in ''|*[!0-9]*) at=0 ;; esac
+  { [ "$d" = "$(date +%F)" ] || { [ -n "$REVIVE" ] && [ $(( $(date +%s) - at )) -lt 86400 ]; }; } \
+    && [ "$st" = posted ] && [ -z "${RACE_LOST:-}" ] || return 0
   if [ "$rc" -eq 0 ]; then state=claimed; else state=refused; fi
   printf '%s\t%s\t%s\t%s\t%s\n' "$d" "$state" "$(date +%s)" "$$" "$MY_ID" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f"
   [ "$state" = refused ] && [ -z "$REVIVE" ] || return 0     # --revive: scripts/t3-watch.py tells the user

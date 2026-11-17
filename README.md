@@ -581,10 +581,12 @@ changes the worker side of the Stop hook; everything else stays as above.
   `quietReports`. The item is always written first, also when no sidecar exists, and never handed
   back. It wakes at once (no debounce, no fallback wait) unless the coordinator is busy (its hooks
   hand it in) or a wake is under way. Exit 0 = delivered (202, under way, or busy); 9 = queued, the
-  watcher acts on it, the last stderr line says why: `queued: usage limit until HH:MM`,
-  `queued: morning coordinator pending`, `queued: a fresh coordinator is needed`, `queued: wake
-  failed, the watcher retries`; 4 = queued, but no watcher tick for 30 min (`t3-inbox.tick`), or the
-  inbox could not take it: nobody will act, the caller alarms (`NOT delivered (...)`). In the digest
+  watcher acts on it, the last stderr line says why, exactly `t3-inbox: queued: <reason>` with
+  `<reason>` one of `usage limit until HH:MM` (`until the reset` when T3 gave no time), `morning
+  coordinator pending`, `a fresh coordinator is needed`, `wake failed, the watcher retries`; 4 =
+  queued, but no watcher tick for 30 min (`t3-inbox.tick`), or the inbox could not take it: nobody
+  will act, the caller alarms (last stderr line `t3-inbox: NOT delivered (<reason>; queued, but no
+  watcher ran for 30 min)` or `t3-inbox: NOT delivered (the inbox could not take it)`). In the digest
   it reads "Your user's answer (via <from>, HH:MM)", under a head line telling the coordinator it is
   your user's own word, to act on and answer in that turn. With `quietReports` off the watcher's inbox
   tick still runs and handles user items only.
@@ -620,7 +622,8 @@ coordinator, nobody is woken: the watcher starts one, the way the morning chain 
 - **The start** (`t3-watch.py`, its revive step, every tick after the inbox tick). Guards: the item
   waits; not usage-limited; no morning or revive post younger than 30 min; the morning chain comes
   first (its trigger waits out a usage limit, or, with `morningTakeover`, `orch-morning-t3.timer`
-  elapses within the hour: the answer then reaches the morning coordinator); the scope is
+  elapses within `MM_STALE_SEAT_MIN` plus an hour, so a takeover is quiet long enough for the
+  morning claim: the answer then reaches the morning coordinator); the scope is
   `morningRoot`'s (the default scope without scopes: the takeover task runs in that T3 project);
   one start per seat episode (the sidecar's `sessionId`, or `none`; a takeover that claimed and has
   not run `t3-bind` yet keeps its episode); at most 3 a day. Then
