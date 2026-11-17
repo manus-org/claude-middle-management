@@ -6,7 +6,8 @@
 #   A  config shape (config-check.sh validate)
 #   B  deliver: a status report never wakes (asleep, idle, busy, past fallbackMin); an important one
 #      wakes an asleep coordinator with a digest of every pending item, waits while it is busy, is
-#      debounced while idle; no status field and a stale watcher stamp wake as before
+#      debounced while idle; no status field and a stale watcher stamp wake as before; held while
+#      t3-watch.py's state file names the coordinator usage-limited (fail open: stale, missing, bad)
 #   C  inject: PostToolUse / UserPromptSubmit / Stop print and delete; a sub-agent (agent_id) and
 #      other sessions get nothing; the 8000 cap; own reports and items past 24 h are dropped
 #   D  a failed wake: the caller's own item goes back to it (exit 4), the others stay, one line
@@ -150,6 +151,28 @@ dl 10 status w1 "status nostamp" >/dev/null; is "...a status report with no stam
 reset; mv "$ST/orchestrator.t3.json" "$TMP/side.bak"
 is "no sidecar -> exit 3, nothing queued" "$(dl 0 important w1 "READY nobody")/$(items)" "3/0"
 mv "$TMP/side.bak" "$ST/orchestrator.t3.json"
+# usage limit: t3-watch.py's state file <cfg>/state/t3-watch/<scope>.json names the coordinator's thread
+lim() {  # $1 = checked (seconds after T0), $2 = the thread key in limit.runs [, $3 = scope name]
+  mkdir -p "$ST/t3-watch"; jq -cn --argjson c $((T0 + $1)) --arg t "$2" \
+    '{checked: $c, limit: {since: $c, runs: {($t): "run:1"}}}' > "$ST/t3-watch/${3:-default}.json"; }
+reset; coord asleep; lim 0 mcp:coord
+is "important, asleep, the coordinator usage-limited -> queued (exit 0), no wake" "$(dl 10 important w1 "READY in the limit")/$(nhook)/$(items)" "0/0/1"
+dl 1500 important w2 "READY past fallbackMin" >/dev/null
+is "...past fallbackMin too (the file checked 25 min ago) -> still held" "$(nhook)/$(items)" "0/2"
+lim 0 mcp-coord; dl 1550 important w3 "READY dash key" >/dev/null
+is "...a key spelled mcp-coord (file-name form) matches too" "$(nhook)/$(items)" "0/3"
+lim -3600 mcp:coord; dl 1600 important w4 "READY stale file" >/dev/null
+is "the file not checked for 30 min (watcher stopped, T3 API down) -> fail open: wake" "$(nhook)/$(items)" "1/0"
+has "...one digest with everything held" "4 waiting" "$(prompt)"
+reset; coord asleep; lim 0 mcp:other
+dl 10 important w1 "READY other thread" >/dev/null; is "a limit on another thread only -> wake as before" "$(nhook)" 1
+reset; coord asleep; printf 'not json' > "$ST/t3-watch/default.json"
+dl 10 important w1 "READY bad file" >/dev/null; is "an unreadable limit file -> wake as before" "$(nhook)" 1
+reset; coord asleep; rm -rf "$ST/t3-watch"; mkdir -p "$ST/scopes/ff"; cp "$ST/orchestrator.t3.json" "$ST/scopes/ff/"; lim 0 mcp:coord ff
+printf 'READY named scope' > "$TMP/r.ff.txt"
+env_ T3W_NOW=$((T0 + 10)) MM_SESSION_ID=sid-w1 MM_SCOPE_CWD="$TMP" python3 "$IB" deliver "$ST/scopes/ff" important w1 "$TMP/r.ff.txt" 2>>"$TMP/stderr.log"
+is "a named scope reads its own file (t3-watch/ff.json) -> held" "$(nhook)/$(find "$ST/scopes/ff/t3-inbox" -name '*.json' | wc -l | tr -d ' ')" "0/1"
+rm -rf "$ST/scopes" "$ST/t3-watch"
 
 # ------------------------------------------------------------------------------------------ C --
 echo "C. inject"
@@ -190,6 +213,7 @@ has "...logged" "own report" "$(cat "$ST/t3-report/inbox.log")"
 dl 0 status w1 "yesterday" >/dev/null
 OUT=$(inj 90000 "$(ev PostToolUse)"); is "an item older than 24 h -> dropped" "$OUT/$(items)" "/0"
 has "...logged" "older than 24 h" "$(cat "$ST/t3-report/inbox.log")"
+has "...and a failures.log line, so the watcher tells the user" "	w1	sid-w1	mcp:w1	dropped from the quiet-report inbox after 24 h undelivered" "$(cat "$ST/t3-report/failures.log")"
 dl 100 status w1 "at the turn end" >/dev/null
 OUT=$(inj 110 "$(jq -cn '{session_id:"sid-coord", hook_event_name:"Stop", stop_hook_active:true}')")
 is "Stop on a continuation -> nothing (no loop)" "$OUT/$(items)" "/1"

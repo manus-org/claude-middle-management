@@ -12,7 +12,8 @@
 #   H  report lost · I T3 API problems, I2 T3 URL (t3Url, loopback default) · J no coordinator · K dry-run · L topics.py hook · M handover
 #   N  morning takeover pending: no wake into the night coordinator, notify instead
 #   O  quiet reports: the inbox tick (fallback, never for status, debounce, dry-run, morning hold,
-#      T3 API down, one failures line per episode, 24-h drop)
+#      T3 API down, one failures line per episode, 24-h drop, held while the coordinator is
+#      usage-limited and one digest when the limit is over)
 #   Z  no webhook URL or token in any output
 # One local HTTP stub serves both the T3 shell (GET, checks the protocol header and the bearer) and
 # the webhook (POST, answers 202, 429 or sleeps past the timeout). `claude` is a stub on PATH.
@@ -497,6 +498,25 @@ rm -f "$TMP/hook.mode"; tick 1810; is "...webhook back -> delivered" "$(qn)" 0
 qreset; qitem old status -90000 "a day old" "$CFG/state/scopes/ff/t3-inbox"
 tick 0; is "a scope without sidecar: an item older than 24 h is dropped" "$(ls "$CFG/state/scopes/ff/t3-inbox" | wc -l | tr -d ' ')" 0
 has "...with an inbox.log line" "older than 24 h" "$(cat "$CFG/state/t3-report/inbox.log")"
+# usage limit: held while the coordinator is limited, one digest in the tick that ends the episode
+qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED}]"
+qitem h1 important 0 "READY: held in the limit"; qitem h2 status 5 "status: held too"
+tick 10; is "coordinator usage-limited, asleep, an important item -> held, no wake" "$(nhook)/$(qn)" "0/2"
+OUT=$(tick 20 --dry-run); has "...dry-run says why" "INBOX   scope default: 2 pending (1 important), held (coordinator usage-limited)" "$OUT"
+tick 1300; is "...past fallbackMin, still limited -> still held" "$(nhook)/$(qn)" "0/2"
+tick 1810; is "...the Keepalive retry still goes out, the items stay" "$(hooks | jq -r .report)/$(qn)" "Keepalive/2"
+shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",\"status\":\"completed\",\"lastErrorClass\":\"usage_limit\",\"latestRunId\":\"run:2\"}]"
+tick 2400; is "limit over -> one digest in the same tick" "$(nhook)/$(qn)" "2/0"
+has "...with the important item" "READY: held in the limit" "$(hooks | tail -1 | jq -r .prompt)"
+has "...and the status item" "status: held too" "$(hooks | tail -1 | jq -r .prompt)"
+has "...your user got the limit-over notice" "Limit over" "$(notes)"
+tick 3000; is "...nothing more after it" "$(nhook)" 2
+qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED}]"
+qitem h3 important 0 "READY: T3 API went down"
+tick 10; is "limited -> held" "$(nhook)/$(qn)" "0/1"
+echo 500 > "$TMP/shell.code"; tick 1900
+is "...the T3 API down, the limit file 31 min old -> fail open: the digest goes out" "$(nhook)/$(qn)" "1/0"
+rm -f "$TMP/shell.code"
 cp "$TMP/cfg.bak" "$CFG/middle-management.json"; rm -rf "$QI" "$QS" "$CFG/sessions/c.json"
 
 # ------------------------------------------------------------------------------------------ Z --

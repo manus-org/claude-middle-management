@@ -45,6 +45,8 @@ Plus: topics.py tick --scope <name> for every scope when topics.py exists (with 
 and with config quietReports.enabled the inbox tick of t3-inbox.py for every scope (README "Quiet
 reports": the fallback wake, a debounced wake whose window has passed, the 24-h drop; no wake while
 the morning claim is pending), also when the T3 API is down: it needs only the inbox and the webhook.
+It runs after the scope checks, so while <cfg>/state/t3-watch/<scope>.json names the coordinator in
+limit.runs t3-inbox.py holds the digest, and the tick that ends the episode sends it.
 A T3 API problem (HTTP 400 / missing keys, token rejected, server down twice in a row) -> one
 notify per kind and day, never a crash. Secrets: the token (config t3TokenFile, default
 ~/.config/t3-threads/token, refused when group/other can read it) only goes into a request header;
@@ -516,7 +518,9 @@ def check_scope(name, sdir, side, shell, ss):
                     wake(name, "other failure in %s: %s. %s" % (label(t), t.get("lastErrorClass") or "unknown",
                                                                  err_text(t)))
             nfailed[tid] = run
-    st.update(pending=npend, stuck=nstuck, failed=nfailed)
+    # checked: t3-inbox.py holds quiet digests while limit.runs names the coordinator, and only
+    # while this stamp is under 30 min old (a watcher that stopped checking never holds a wake)
+    st.update(pending=npend, stuck=nstuck, failed=nfailed, checked=NOW)
     save(st_path, st)
 
 

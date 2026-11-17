@@ -21,6 +21,8 @@ under <inbox>/.lock (held for list + rename only, the POST runs outside it), a w
 for an IMPORTANT item (t3-report.sh's marker regex: READY, LIVE, BLOCKED, FERTIG, question, ...);
 a status item never wakes, in no state (coordinator 2026-11-02), it waits for the coordinator's
 next tool call, turn start or turn end, or rides along in the next digest wake:
+  the coordinator is usage-limited (t3-watch.py's <cfg>/state/t3-watch/<scope>.json, checked
+    < 30 min ago, names its thread in limit.runs)               no wake: held until the limit is over
   a wake went out < 120 s ago          no wake: its turn's hooks take the rest
   the oldest important item >= fallbackMin (default 20) old   wake (never lost)
   coordinator asleep (no live registry entry)                 wake
@@ -35,7 +37,9 @@ failures.log line; the watcher's retries write one line per failure episode (<in
 inject: only in the session the sidecar names, never in a sub-agent (agent_id), never into a
 "Keepalive" prompt (answered with exactly "OK"; its Stop takes them); claims what it
 prints (8000 chars per call, at least one item), deletes it after printing, and drops items older
-than 24 h and items that session sent itself before it held the seat. Env: T3W_NOW (test seam).
+than 24 h (one failures.log line each, so the watcher tells the user) and items that session sent
+itself before it held the seat. Reads <cfg>/state/t3-watch/<scope>.json (t3-watch.py). Env: T3W_NOW
+(test seam).
 """
 import contextlib, datetime, glob, importlib.util, json, os, re, subprocess, sys, tempfile, time
 
@@ -195,6 +199,9 @@ def housekeep(inbox):
             with contextlib.suppress(OSError):
                 os.unlink(p)
             ilog("dropped", it, "older than 24 h")
+            # loud: a report held through a long usage limit must not vanish into inbox.log alone
+            failure(it.get("from") or "?", it.get("session"), it.get("thread"),
+                    "dropped from the quiet-report inbox after 24 h undelivered")
         else:
             keep.append((p, it))
     return keep
@@ -243,10 +250,30 @@ def pack(items, cap, head, tail):
     return taken, "\n".join(body)
 
 
+def limited(sdir):
+    """True while t3-watch.py's usage-limit episode of this scope names the coordinator's thread
+    (<cfg>/state/t3-watch/<scope>.json: the sidecar's threadId is a key of limit.runs). A wake then
+    only starts a run that fails at once, so the items wait; the watcher's tick that sees the limit
+    over (same pass, after its check) sends the digest. Fail open: a missing or unreadable file, one
+    the watcher has not checked for 30 min (T3 API down, watcher stopped) or a sidecar without
+    threadId reads False, and the wake goes out as before."""
+    name = "default" if os.path.realpath(sdir) == os.path.realpath(STATE) else os.path.basename(sdir)
+    try:
+        with open(os.path.join(STATE, "t3-watch", name + ".json"), encoding="utf-8") as f:
+            st = json.load(f)
+        with open(os.path.join(sdir, "orchestrator.t3.json"), encoding="utf-8") as f:
+            tid = json.load(f)["threadId"]
+        if NOW - num(st.get("checked")) > TICK_STALE_S:
+            return False
+        return tid.replace(":", "-") in {k.replace(":", "-") for k in st["limit"]["runs"]}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
 def decide(inbox, sid, items, hold=False):
     """The reason for a wake now, or None. Only an important item ever causes one."""
     imp = [it for _, it in items if it.get("class") == "important"]
-    if not imp or hold:
+    if not imp or hold or limited(os.path.dirname(inbox)):
         return None
     _, fallback, debounce = settings()
     last = stamp(os.path.join(inbox, ".last-wake"))
@@ -295,7 +322,8 @@ def run(inbox, sid, from_, env, own=None, hold=False, dry=False, label="", start
         why = decide(inbox, sid, items, hold)
         print("INBOX   %s: %d pending (%d important), %s" % (
             label, len(items), sum(it.get("class") == "important" for _, it in items),
-            "would wake (%s)" % why if why else "no wake"))
+            "would wake (%s)" % why if why else
+            "held (coordinator usage-limited)" if limited(os.path.dirname(inbox)) else "no wake"))
         return 0
     try:
         with locked(inbox, 3 if start is None else 2):
