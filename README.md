@@ -560,8 +560,8 @@ changes the worker side of the Stop hook; everything else stays as above.
   (its session is told "report NOT delivered ... send it yourself") with one `failures.log` line;
   the other items stay, and the watcher's retries write one line per failure episode. An item
   older than 24 h is dropped with an `inbox.log` line and a `failures.log` line (the watcher tells
-  your user: a weekly usage limit can outlast it); one the coordinator itself sent
-  before it held the seat. An important report that lands while the coordinator's turn is ending
+  your user: a weekly usage limit can outlast it); one the coordinator itself sent before it held
+  the seat is dropped too, with an `inbox.log` line only. An important report that lands while the coordinator's turn is ending
   (after its Stop hook, before it reads as idle, about 0.1 s) waits for the next watcher tick,
   then for the debounce window: late, not lost. If the inbox cannot be written, the report goes out
   as before, one wrapped turn, also a status report (never lost beats quiet).
