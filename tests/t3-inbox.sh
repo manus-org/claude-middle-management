@@ -104,7 +104,11 @@ coord asleep; fresh 1500; dl 1500 status w2 "status past fallbackMin" >/dev/null
 is "status items past fallbackMin, asleep -> still no wake (coordinator 2026-11-02)" "$(nhook)/$(items)" "0/4"
 is "important, asleep -> one wake" "$(dl 1600 important w4 "READY: lane x merged")/$(nhook)" "0/1"
 B=$(tail -1 "$TMP/hook.log")
-has "...the digest names the count" "Worker reports (quiet), 5 waiting, oldest first:" "$(prompt)"
+# The line for the coordinator, pinned once here and in tests/t3-watch.sh (FOR_COORDINATOR in t3-wake.sh and t3-inbox.py).
+FC="For the coordinator, not for your user: take these reports in and book them. In a turn a worker report or a wake started, write to your user only what matters to them: nothing if nothing does, one short line if something is new, never an earlier answer again."
+has "...the digest names the count, the line for the coordinator right under it" "Worker reports (quiet), 5 waiting, oldest first:
+$FC
+### Report from " "$(prompt)"
 for t in "working on step 2" "still on it" "half way" "status past fallbackMin" "READY: lane x merged"; do
   has "...carries \"$t\"" "$t" "$(prompt)"
 done
@@ -157,8 +161,10 @@ OUT=$(inj 10 "$(ev PostToolUse sid-w1)"); is "a worker session -> nothing" "$OUT
 OUT=$(inj 10 "$(ev PostToolUse)")
 is "the coordinator's PostToolUse -> additionalContext" "$(jq -r .hookSpecificOutput.hookEventName <<<"$OUT")" PostToolUse
 C=$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")
-has "...the header" "Worker reports (quiet): 2 arrived without a turn of their own" "$C"
-has "...the last text is the full answer again" "its last text is the full answer to them again" "$C"
+has "...the header, the line for the coordinator right under it" "Worker reports (quiet): 2 arrived without a turn of their own, oldest first.
+$FC
+Handle them" "$C"
+has "...the full answer again only in a turn your user started" "Only if your user started this turn: its last text is the full answer to them again" "$C"
 has "...the first report" "READY one" "$C"; has "...the second" "status two" "$C"
 is "...printed = consumed" "$(items)/$(ls "$IN" | grep -c claimed)" "0/0"
 is "...one inbox.log line each" "$(grep -c '	injected	.*	PostToolUse$' "$ST/t3-report/inbox.log")" 2
@@ -253,6 +259,7 @@ OUT=$(inj 6 "$(ev UserPromptSubmit)"); is "...the woken turn's UserPromptSubmit 
 reset; coord asleep
 dl 0 important w1 "$(python3 -c 'print("q" * 4000)')" >/dev/null
 P1=$(prompt); is "an item too long for any digest -> the wake says it comes as hook context" "$P1" "Worker reports (quiet), 1 waiting, oldest first:
+$FC
 (1 more arrive as hook context in this turn)"
 is "...it stays" "$(items)" 1
 
@@ -274,6 +281,7 @@ is "...busy coordinator -> still no wake" "$(nhook)" 0
 OUT=$(rep "$(stop sid-coord "my answer" '{"stop_hook_active":true}')"); is "the coordinator's Stop on a continuation -> nothing" "$OUT/$(items)" "/2"
 OUT=$(rep "$(stop sid-coord "my answer")")
 is "the coordinator's Stop -> one block with the waiting reports" "$(jq -r '[.decision, (.reason | test("working on step 2")), (.reason | test("READY: lane done"))] | @tsv' <<<"$OUT")" "block	true	true"
+has "...the block carries the line for the coordinator" "$FC" "$(jq -r .reason <<<"$OUT")"
 is "...handed in = gone" "$(items)" 0
 OUT=$(rep "$(stop sid-coord "next answer")"); is "...the next Stop with an empty inbox -> silent" "$OUT" ""
 coord asleep; echo 500 > "$TMP/hook.code"
@@ -283,7 +291,9 @@ is "...its report is not queued twice" "$(items)" 0
 echo 202 > "$TMP/hook.code"
 printf '{"quietReports":{"enabled":false}}\n' > "$CFG/middle-management.json"; reset; coord busy
 rep "$(stop sess-w "quiet off: sent as before")" >/dev/null
-is "quiet off -> one wrapped report as before, no inbox" "$(prompt)/$([ -d "$IN" ] && echo inbox || echo none)" "Report from worker-1 (thread unknown): quiet off: sent as before/none"
+is "quiet off -> one wrapped report as before, the line for the coordinator under its head, no inbox" "$(prompt)/$([ -d "$IN" ] && echo inbox || echo none)" "Report from worker-1 (thread unknown):
+$FC
+quiet off: sent as before/none"
 printf '{"quietReports":{"enabled":true}}\n' > "$CFG/middle-management.json"
 
 # ------------------------------------------------------------------------------------------ H --

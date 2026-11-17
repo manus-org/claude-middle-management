@@ -2,8 +2,9 @@
 # middle-management plugin: the one sender into the current coordinator's T3 thread (plan 1.1, 1.3, 1.8).
 # Consumers: hooks/t3-report.sh (a worker's turn end), scripts/t3-watch.py (the Keepalive retry and
 #   the named action reports), scripts/t3-inbox.py (the quiet-mode digest and --thread),
-#   pathfinder's serve.py submit push (outside the plugin), a team's inbound phone poller (outside
-#   the plugin, MM_SESSION_ID=""), tests/t3-watch.sh, tests/t3-inbox.sh.
+#   scripts/orchestrator.sh (t3-bind's one takeover wake, --notice), pathfinder's serve.py submit
+#   push (outside the plugin), a team's inbound phone poller (outside the plugin, MM_SESSION_ID=""),
+#   tests/t3-watch.sh, tests/t3-inbox.sh, tests/t3-seat.sh.
 #   Nothing else may POST to the coordinator's webhook.
 #
 # Usage: t3-wake.sh <from> <file-with-text>
@@ -11,6 +12,9 @@
 #        t3-wake.sh <from> --digest <file>    quiet mode (README "Quiet reports"): the text is a digest
 #                                             of several reports, sent unwrapped; no failures.log line
 #                                             (the caller, t3-inbox.py, logs and keeps the items)
+#        t3-wake.sh <from> --notice <file>    a notice to the woken session, not a worker's report
+#                                             (orchestrator.sh t3-bind: "seat taken over by ..."): wrapped
+#                                             under the head, without the line for the coordinator
 #        t3-wake.sh --thread                  print the caller's thread (see below) and exit 0
 # Env:   MM_SCOPE      the scope (name) whose coordinator is woken; wins over MM_SCOPE_CWD
 #        MM_SCOPE_CWD  the directory whose scope's coordinator is woken (default: the cwd)
@@ -43,9 +47,10 @@ if [ -n "$SID" ]; then
 fi
 [ "${1:-}" = --thread ] && { printf '%s\n' "$THREAD"; exit 0; }   # t3-inbox.py: one lookup, one place
 
-FROM=${1:-}; ARG=${2:-}; DIGEST=""
+FROM=${1:-}; ARG=${2:-}; DIGEST=""; NOTICE=""
 [ "$ARG" = --digest ] && { DIGEST=1; ARG=${3:-}; }
-[ -n "$FROM" ] && [ -n "$ARG" ] || { echo "usage: t3-wake.sh <from> <file-with-text>|--keepalive|--digest <file>" >&2; exit 64; }
+[ "$ARG" = --notice ] && { NOTICE=1; ARG=${3:-}; }
+[ -n "$FROM" ] && [ -n "$ARG" ] || { echo "usage: t3-wake.sh <from> <file-with-text>|--keepalive|--digest <file>|--notice <file>" >&2; exit 64; }
 command -v jq >/dev/null 2>&1 || { echo "t3-wake: jq is not installed" >&2; exit 4; }
 
 CFG_DIR="$(bash "$DIR/config-check.sh" dir)"
@@ -92,10 +97,17 @@ else
 fi
 # A digest (t3-inbox.py) already names every report's sender and thread, so it is sent unwrapped too.
 [ -n "$DIGEST" ] && SRC=(--rawfile r "$ARG" --argjson ka true)
-BODY=$(jq -cn --arg from "$FROM" --arg session "$SID" --arg thread "$THREAD" "${SRC[@]}" \
+# A worker's report (the sender is a session) gets the line for the coordinator under its head; a
+# caller that is no session (MM_SESSION_ID="": the watcher, your user's channel poller) does not,
+# nor does a --notice (t3-bind's takeover wake: its reader is a worker from that message on).
+# The same text as FOR_COORDINATOR in t3-inbox.py.
+FOR_COORDINATOR="For the coordinator, not for your user: take these reports in and book them. In a turn a worker report or a wake started, write to your user only what matters to them: nothing if nothing does, one short line if something is new, never an earlier answer again."
+[ -n "$SID" ] && [ -z "$NOTICE" ] || FOR_COORDINATOR=""
+BODY=$(jq -cn --arg from "$FROM" --arg session "$SID" --arg thread "$THREAD" --arg fc "$FOR_COORDINATOR" "${SRC[@]}" \
   '{from: $from, session: $session, thread: $thread, report: ($r | rtrimstr("\n"))[:4000]}
    # prompt = what the report task templates ({{body.prompt}}): Keepalive is never wrapped (rule 1.4b).
    | .prompt = (if $ka then .report
+                elif $fc != "" then "Report from \(.from) (thread \(.thread)):\n\($fc)\n\(.report)"
                 else "Report from \(.from) (thread \(.thread)): \(.report)" end)') \
   || fail "could not build the JSON body"
 

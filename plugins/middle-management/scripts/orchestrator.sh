@@ -610,8 +610,9 @@ case "${1:-status}" in
     if [ -n "$OLD_SID" ] && [ "$OLD_SID" != "$MY_ID" ]; then
       PREV=$(jq -c '{sessionId, threadId, title, reportTaskId}' "$SIDE" 2>/dev/null) || PREV='null'
       # The takeover wake goes to the PREVIOUS report address, so it is sent before the overwrite.
+      # --notice: the old holder is a worker from this message on, so no line for the coordinator.
       TXT=$(umask 077; mktemp) && printf 'seat taken over by %s (thread %s)\n' "$F_TITLE" "$F_THREAD" > "$TXT"
-      MM_SCOPE="${SCOPE:-default}" MM_SESSION_ID="$MY_ID" bash "$DIR/t3-wake.sh" "$F_TITLE" "$TXT" >/dev/null 2>&1; WRC=$?
+      MM_SCOPE="${SCOPE:-default}" MM_SESSION_ID="$MY_ID" bash "$DIR/t3-wake.sh" "$F_TITLE" --notice "$TXT" >/dev/null 2>&1; WRC=$?
       rm -f "$TXT"
       if [ "$WRC" -eq 0 ]; then echo "Woke the previous holder $(side '.title // "?"') ($(side '.threadId // "?"')): seat taken over."
       else echo "WARNING: the previous holder was NOT woken (t3-wake rc $WRC). Send it yourself: t3_thread_send $(side '.threadId // "?"') \"seat taken over by $F_TITLE (thread $F_THREAD)\""; fi

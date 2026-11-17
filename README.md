@@ -468,6 +468,14 @@ every thread, hooks included).
   cannot reach a thread whose process has ended; exit 0 only on 202, anything else is not delivered.
   A pure retry or liveness ping is the single word `Keepalive`, never wrapped in other text; the
   answer is exactly `OK`.
+- **Report format.** A worker's report opens with `For your user: <one line>` or `For your user:
+  nothing` (the worker banner asks for it). Every head that hands worker reports to the coordinator
+  (`Report from <from> (thread <id>):`, the quiet digest and "Worker reports (quiet)") has the line
+  "For the coordinator, not for your user: take these reports in and book them. ..." directly
+  under it, so the coordinator writes to its user only what matters to them. A sender that is no
+  session (`MM_SESSION_ID=` empty: the watcher, the user's channel poller), a bare `Keepalive` and
+  the takeover wake "seat taken over by ..." (`t3-wake.sh <from> --notice <file>`: its reader is a
+  worker from that message on) get no such line.
 - **Asleep is not gone.** A holder whose process ended but whose sidecar names it is "asleep in T3":
   the banner says so instead of "stale", `peer-state.py` shows `asleep (T3)` and a thread column,
   and `claim` / `release <id>` refuse with "wake it: t3_thread_send <id>". `--t3-asleep-ok`

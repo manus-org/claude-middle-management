@@ -205,8 +205,9 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
     printf '(t3_thread_organize settle, or t3-settle.py: morning-ritual step 3), after checking it left nothing\n'
     printf 'loose. Sweep for finished, unsettled threads when you take the seat, after every wrap and before you hand over.\n'
     printf 'Your user sees only the last text of a turn they started: bookkeeping first, answer last. Reports handled\n'
-    printf 'after your answer: end with the full answer again, never a one-line addendum. What arises in a turn a\n'
-    printf 'worker report or a wake started is restated in their next turn.\n'
+    printf 'after your answer in a turn they started: end with the full answer again, never a one-line addendum. In a\n'
+    printf 'turn a worker report or a wake started, write only what matters to them (often nothing), and restate that\n'
+    printf 'in their next turn.\n'
   fi
   if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
@@ -274,7 +275,7 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
   # One line for the event duties: the T3 part only where the full text has it.
   printf 'At events: %sa lane'"'"'s pull request is merged → clean up its lane in the same turn; a task starts → check your tokens%s.\n' \
     "$([ -n "${T3CODE_HOME:-}" ] && echo 'a lane reports done and wrapped → settle it and its sub-agent threads; ')" \
-    "$([ -n "${T3CODE_HOME:-}" ] && echo '; your user started the turn → bookkeeping first, answer last, never a one-line addendum; a worker report or a wake started it → restate in their next turn')"
+    "$([ -n "${T3CODE_HOME:-}" ] && echo '; your user started the turn → bookkeeping first, answer last, never a one-line addendum; a worker report or a wake started it → only what matters to them, restated in their next turn')"
   if [ -n "${T3CODE_HOME:-}" ]; then
     if [ "$SIDE_SID" = "$MY_ID" ]; then
       printf 'T3 Code: your seat is bound to %s, report task %s; worker reports arrive by themselves%s. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.\n' \
@@ -302,17 +303,19 @@ else
       ROLE_L=$(printf 'Session role: WORKER%s ("%s"). The coordinator is %s ("%s").' "$OF" "${MY_NAME:-unnamed}" "$T3T" "${ORCH:-unnamed}")
     fi
     if [ -n "${T3CODE_HOME:-}" ]; then
-      CHAN_F=$(printf 'Your report = the last text of your turn: the Stop hook delivers it to the coordinator. Never SendMessage\n'
+      CHAN_F=$(printf 'Your report = the last text of your turn: the Stop hook delivers it to the coordinator. Its first line\n'
+      printf 'says what in it matters to your user: "For your user: <one line>" or "For your user: nothing". Never SendMessage\n'
       printf 'or poke a T3 coordinator, never message other workers. Tools first, report last: only the final text\n'
       printf 'block of a turn arrives. If the hook says "report NOT delivered", send it yourself with t3_thread_send.\n'
       printf 'Book every READY / LIVE / blocked / question report first (key = lane dir or branch, the first entry creates it):\n'
       printf 'python3 "%s/scripts/topics.py" entry --status <s> [--stage ready|live] [--waits-on "user · <q> · rec: <r>"] "<headline>"\n' "$PLUGIN_ROOT"
       printf 'A message that is exactly "Keepalive": answer exactly "OK" and nothing else.')
-      CHAN_S='Your report = the last text of your turn (the Stop hook delivers it); never SendMessage or poke a T3 coordinator, never message other workers. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.'
+      CHAN_S='Your report = the last text of your turn (the Stop hook delivers it); its first line says what in it matters to your user: "For your user: <one line>" or "For your user: nothing". Never SendMessage or poke a T3 coordinator, never message other workers. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.'
     else
       CHAN_F=$(printf 'Peer messages are not the report channel to a T3 thread. Report with: bash "%s/scripts/t3-wake.sh" "%s" <file with the report>\n' "$PLUGIN_ROOT" "${MY_NAME:-worker}"
-      printf '(exit 0 = delivered); never message other workers.')
-      CHAN_S=$(printf 'Report with: bash "%s/scripts/t3-wake.sh" "%s" <file with the report> (exit 0 = delivered); never message other workers.' "$PLUGIN_ROOT" "${MY_NAME:-worker}")
+      printf '(exit 0 = delivered); its first line says what in it matters to your user: "For your user: <one line>" or\n'
+      printf '"For your user: nothing". Never message other workers.')
+      CHAN_S=$(printf 'Report with: bash "%s/scripts/t3-wake.sh" "%s" <file with the report> (exit 0 = delivered); its first line says what in it matters to your user: "For your user: <one line>" or "For your user: nothing". Never message other workers.' "$PLUGIN_ROOT" "${MY_NAME:-worker}")
     fi
     if [ "$(side '.previous.sessionId // empty')" = "$MY_ID" ]; then
       HANDED=$(printf 'You handed the seat over: forward every report that still reaches you with t3_thread_send %s, finish\n' "$(side '.threadId // "?"')"
