@@ -105,7 +105,7 @@ is "status items past fallbackMin, asleep -> still no wake (coordinator 2026-11-
 is "important, asleep -> one wake" "$(dl 1600 important w4 "READY: lane x merged")/$(nhook)" "0/1"
 B=$(tail -1 "$TMP/hook.log")
 # The line for the coordinator, pinned once here and in tests/t3-watch.sh (FOR_COORDINATOR in t3-wake.sh and t3-inbox.py).
-FC="For the coordinator, not for your user: take these reports in and book them. Write to your user only what matters to them: nothing if nothing does, one short line if something is new. You do not need to repeat an earlier answer here."
+FC="For the coordinator, not for your user: take these reports in and book them. In a turn a worker report or a wake started, write to your user only what matters to them: nothing if nothing does, one short line if something is new, never an earlier answer again."
 has "...the digest names the count, the line for the coordinator right under it" "Worker reports (quiet), 5 waiting, oldest first:
 $FC
 ### Report from " "$(prompt)"

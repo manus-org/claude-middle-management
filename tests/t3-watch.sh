@@ -142,13 +142,16 @@ MM_SESSION_ID=sid-w9 wakecall lane-x "$TMP/r.txt"; is "202 -> exit 0" "$?" 0
 B=$(hooks | tail -1)
 is "body: from/session/thread/report" "$(printf '%s' "$B" | jq -c '[.from,.session,.thread,.report]')" '["lane-x","sid-w9","mcp:w9","the report text"]'
 # The line for the coordinator, pinned once here and in tests/t3-inbox.sh (FOR_COORDINATOR in t3-wake.sh and t3-inbox.py).
-FC="For the coordinator, not for your user: take these reports in and book them. Write to your user only what matters to them: nothing if nothing does, one short line if something is new. You do not need to repeat an earlier answer here."
+FC="For the coordinator, not for your user: take these reports in and book them. In a turn a worker report or a wake started, write to your user only what matters to them: nothing if nothing does, one short line if something is new, never an earlier answer again."
 is "body: a worker's report: head with from + thread, the line for the coordinator under it, then the report" "$(printf '%s' "$B" | jq -r .prompt)" "Report from lane-x (thread mcp:w9):
 $FC
 the report text"
 is "posts.tsv counts the delivered post" "$(tail -1 "$CFG/state/t3-report/posts.tsv")" "$(date +%F)	lane-x	sid-w9	mcp:w9"
 MM_SESSION_ID="" wakecall telegram-user "$TMP/r.txt"
 is "a sender that is no session (your user's channel poller) -> wrapped as before, no line for the coordinator" "$(hooks | tail -1 | jq -r .prompt)" "Report from telegram-user (thread unknown): the report text"
+MM_SESSION_ID=sid-w9 wakecall coord-two --notice "$TMP/r.txt"; is "--notice (t3-bind's takeover wake) -> exit 0" "$?" 0
+is "...a session's notice: wrapped as before, no line for the coordinator" "$(hooks | tail -1 | jq -r .prompt)" "Report from coord-two (thread mcp:w9): the report text"
+is "...its session and thread stay in the body" "$(hooks | tail -1 | jq -c '[.session,.thread]')" '["sid-w9","mcp:w9"]'
 printf '{"session_id":"sid-w9"}\n' > "$H/.t3/userdata/logs/provider/events.mcp-other.log"
 MM_SESSION_ID=sid-w9 wakecall lane-x "$TMP/r.txt"
 is "two provider logs name the session -> thread unknown" "$(hooks | tail -1 | jq -r .thread)" unknown

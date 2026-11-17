@@ -442,7 +442,8 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   reports (quiet)": the coordinator handles those in the turn it is in, never a chat reply per report.
   Every worker report arrives with the line "For the coordinator, not for your user: ..." under its
   head (single report, digest and "Worker reports (quiet)"); a message from a sender that is no
-  session (the watcher, your user's channel poller) and a bare `Keepalive` arrive without it.
+  session (the watcher, your user's channel poller), a bare `Keepalive` and the takeover wake "seat
+  taken over by ..." arrive without it.
   A worker outside T3 Code whose coordinator sits in a T3 thread reports with
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/t3-wake.sh" "<its name>" <file with the report>` (exit 0 =
   delivered); a peer message is not the report channel to a T3 thread.

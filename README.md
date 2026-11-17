@@ -473,8 +473,9 @@ every thread, hooks included).
   (`Report from <from> (thread <id>):`, the quiet digest and "Worker reports (quiet)") has the line
   "For the coordinator, not for your user: take these reports in and book them. ..." directly
   under it, so the coordinator writes to its user only what matters to them. A sender that is no
-  session (`MM_SESSION_ID=` empty: the watcher, the user's channel poller) and a bare `Keepalive`
-  get no such line.
+  session (`MM_SESSION_ID=` empty: the watcher, the user's channel poller), a bare `Keepalive` and
+  the takeover wake "seat taken over by ..." (`t3-wake.sh <from> --notice <file>`: its reader is a
+  worker from that message on) get no such line.
 - **Asleep is not gone.** A holder whose process ended but whose sidecar names it is "asleep in T3":
   the banner says so instead of "stale", `peer-state.py` shows `asleep (T3)` and a thread column,
   and `claim` / `release <id>` refuse with "wake it: t3_thread_send <id>". `--t3-asleep-ok`

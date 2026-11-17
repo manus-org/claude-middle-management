@@ -4,12 +4,14 @@
 
 **Worker reports say what matters to your user.** Every head that hands worker reports to a T3
 coordinator now has one line directly under it: "For the coordinator, not for your user: take these
-reports in and book them. Write to your user only what matters to them: nothing if nothing does,
-one short line if something is new. You do not need to repeat an earlier answer here." That is the
-single report from `scripts/t3-wake.sh` ("Report from <from> (thread <id>):"), the quiet digest
-and the "Worker reports (quiet)" hook text (`scripts/t3-inbox.py`, constant `FOR_COORDINATOR` in
-both). A sender that is no session (`MM_SESSION_ID` empty: the watcher, your user's channel
-poller) and a bare `Keepalive` stay without it. The worker banner of a T3 coordinator's workers
+reports in and book them. In a turn a worker report or a wake started, write to your user only what
+matters to them: nothing if nothing does, one short line if something is new, never an earlier
+answer again." That is the single report from `scripts/t3-wake.sh` ("Report from <from> (thread
+<id>):"), the quiet digest and the "Worker reports (quiet)" hook text (`scripts/t3-inbox.py`,
+constant `FOR_COORDINATOR` in both). A sender that is no session (`MM_SESSION_ID` empty: the
+watcher, your user's channel poller), a bare `Keepalive` and the takeover wake "seat taken over by
+..." of `orchestrator.sh t3-bind` (new `t3-wake.sh <from> --notice <file>`: its reader is a worker
+from that message on) stay without it. The worker banner of a T3 coordinator's workers
 (`hooks/session-role.sh`, full text and short hint, in T3 Code and outside it) asks that a report's
 first line say what in it matters to your user:
 `For your user: <one line>` or `For your user: nothing`. The coordinator's rule from 0.19.1 is

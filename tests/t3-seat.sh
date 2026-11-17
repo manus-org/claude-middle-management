@@ -91,6 +91,10 @@ OUT=$(printf '%s\n' "$U2" | as_s "$H" c2 "$H" t3-bind --thread mcp:t-c2 --title 
 has "c2 t3-bind -> the previous holder is woken" "Woke the previous holder coord one" "$OUT"
 has "...the wake went to the OLD address" "/api/hooks/t1/$S1" "$(grep 'seat taken over' "$TMP/hook.log")"
 has "...with the takeover text" "seat taken over by coord two (thread mcp:t-c2)" "$(cat "$TMP/hook.log")"
+TW=$(grep 'seat taken over' "$TMP/hook.log" | sed 's/^[^ ]* //')
+is "...a notice, not a report: head and text, no line for the coordinator (the old holder is a worker now)" "$(jq -r .prompt <<<"$TW")" "Report from coord two (thread mcp:t-c2): seat taken over by coord two (thread mcp:t-c2)"
+is "...still from the successor's session and thread" "$(jq -c '[.session,.thread]' <<<"$TW")" '["sess-c2","mcp:t-c2"]'
+is "...posts.tsv counts it under the successor" "$(tail -1 "$H/.claude/state/t3-report/posts.tsv")" "$(date +%F)	coord two	sess-c2	mcp:t-c2"
 lacks "...nothing went to the new address" "$S2" "$(cat "$TMP/hook.log")"
 is "...previous = c1" "$(jq -c '.previous | [.sessionId,.threadId,.reportTaskId]' "$SIDE")" '["sess-c1","mcp:t-c1","task-1"]'
 lacks "...a takeover bind names no task to delete (the old holder deletes its own)" "delete_scheduled_task" "$OUT"

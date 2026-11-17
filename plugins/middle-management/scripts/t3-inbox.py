@@ -51,9 +51,11 @@ CAP_ITEM, CAP_WAKE, CAP_INJECT = 4000, 4000, 8000
 WAKING_S, CLAIM_S, TTL_S, TICK_STALE_S = 120, 300, 24 * 3600, 30 * 60
 # Directly under every head that hands worker reports to the coordinator. t3-wake.sh's single report
 # carries the same text (FOR_COORDINATOR there); tests/t3-inbox.sh and tests/t3-watch.sh pin both.
-FOR_COORDINATOR = ("For the coordinator, not for your user: take these reports in and book them. Write to your user "
-                   "only what matters to them: nothing if nothing does, one short line if something is new. You do "
-                   "not need to repeat an earlier answer here.")
+# The "In a turn a worker report or a wake started" qualifier keeps it from contradicting HEAD_INJECT's
+# last sentence, which reaches the coordinator inside a turn its user started as well.
+FOR_COORDINATOR = ("For the coordinator, not for your user: take these reports in and book them. In a turn a worker "
+                   "report or a wake started, write to your user only what matters to them: nothing if nothing does, "
+                   "one short line if something is new, never an earlier answer again.")
 HEAD_WAKE = "Worker reports (quiet), %d waiting, oldest first:\n" + FOR_COORDINATOR
 TAIL_WAKE = "(%d more arrive as hook context in this turn)"
 HEAD_INJECT = ("Worker reports (quiet): %d arrived without a turn of their own, oldest first.\n" + FOR_COORDINATOR +
