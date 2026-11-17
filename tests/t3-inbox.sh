@@ -16,6 +16,12 @@
 #   G  hooks/t3-report.sh: quiet on -> the inbox, the coordinator's Stop hands it in once; off -> as before
 #   H  hooks/t3-inbox.sh fast path (also: a former coordinator in the sidecar's "previous"), hooks.json
 #      registration
+#   U  class user (the user's own answer, a sender that is no session): queued with no seat (exit 9),
+#      no watcher (exit 4), held in a usage limit / by the morning claim, wake at once (no debounce),
+#      busy -> its hooks, a failed wake keeps it (one line per episode), the fresh-coordinator
+#      decision by idle time AND context size (both sides of each threshold), a wrapped holder,
+#      reviveTakeover off -> wake as before, the receipt (moved -> gone, 15 min unmoved -> queued again,
+#      no further wake into that session), quietReports off, the local twin built from t3Url
 #   Z  no webhook secret anywhere
 # The clock is T3W_NOW; the coordinator's registry entry points at a sleep process (live) or is gone.
 set -uo pipefail
@@ -347,6 +353,125 @@ is "hooks.json: PostToolUse runs it" "$(jq -r '[.hooks.PostToolUse[].hooks[] | s
 is "...with no matcher (every tool) and no statusMessage" "$(jq -c '[.hooks.PostToolUse[] | select(.hooks[].command | test("t3-inbox.sh")) | [.matcher, .hooks[0].statusMessage]] | first' "$J")" "[null,null]"
 is "...timeout 5 s at most" "$(jq '[.hooks.PostToolUse[].hooks[] | select(.command | test("t3-inbox.sh")) | .timeout <= 5] | all' "$J")" true
 is "hooks.json: UserPromptSubmit runs it" "$(jq -r '[.hooks.UserPromptSubmit[].hooks[] | select(.command | test("t3-inbox.sh"))] | length' "$J")" 1
+
+# ------------------------------------------------------------------------------------------ U --
+echo "U. class user"
+du() {  # $1 = seconds after T0, $2 = text; prints "<exit>|<last stderr line>"
+  printf '%s' "$2" > "$TMP/u.txt"
+  local rc; env_ T3W_NOW=$((T0 + $1)) MM_SESSION_ID="" MM_SCOPE_CWD="$TMP" \
+    python3 "$IB" deliver "$ST" user workbench-alex "$TMP/u.txt" 2>"$TMP/u.err"; rc=$?
+  cat "$TMP/u.err" >> "$TMP/stderr.log"; echo "$rc|$(tail -1 "$TMP/u.err")"; }
+recv() {  # $1 = seconds after T0: the watcher's receipt check; prints the sessions that missed
+  env_ T3W_NOW=$((T0 + $1)) python3 -c 'import importlib.util as u, sys
+s = u.spec_from_file_location("i", sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m)
+print(" ".join(m.receipts(sys.argv[2])))' "$IB" "$ST"; }
+receipts() { find "$IN" -maxdepth 1 -name '*.receipt' 2>/dev/null | wc -l | tr -d ' '; }
+TX=$CFG/projects/-x; mkdir -p "$TX"
+ctx() {  # $1 = context tokens, $2 = transcript mtime (seconds after T0) [, $3 = session id]
+  printf '{"type":"user","message":{"content":"hi"}}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' \
+    "$(($1 - 1))" > "$TX/${3:-sid-coord}.jsonl"; touch -d "@$((T0 + $2))" "$TX/${3:-sid-coord}.jsonl"; }
+cfgj() { printf '%s\n' "$1" > "$CFG/middle-management.json"; }
+REV='"reviveTakeover":{"allowed":true,"okBy":"Alex, 2026-11-17"},"handoverWarnTokens":350000'
+cfgj '{"quietReports":{"enabled":true}}'
+reset; coord asleep; mv "$ST/orchestrator.t3.json" "$TMP/side.bak"; fresh 0
+is "no seat (no sidecar) -> exit 9, the reason on stderr" "$(du 10 "Yes, go ahead")" "9|t3-inbox: queued: a fresh coordinator is needed"
+is "...the item is on disk, class user, no session" "$(items)/$(jq -r '[.class, .from, .session] | @tsv' "$IN"/*.json)" "1/user	workbench-alex	"
+is "...no wake" "$(nhook)" 0
+reset; touch -d "@$((T0 - 3600))" "$ST/t3-inbox.tick"
+is "no seat and no watcher tick for 30 min -> exit 4, NOT delivered" "$(du 10 "nobody acts")" "4|t3-inbox: NOT delivered (a fresh coordinator is needed; queued, but no watcher ran for 30 min)"
+is "...still queued (the caller alarms)" "$(items)" 1
+mv "$TMP/side.bak" "$ST/orchestrator.t3.json"
+reset; coord asleep; fresh 0; lim 0 mcp:coord
+jq --arg r "$(date -u -d "@$((T0 + 7200))" +%Y-%m-%dT%H:%M:%S.000Z)" '.limit.resets = {"mcp:coord": $r}' "$ST/t3-watch/default.json" > "$TMP/l.json" && mv "$TMP/l.json" "$ST/t3-watch/default.json"
+is "the coordinator usage-limited -> exit 9 with the reset time" "$(du 10 "held answer")" "9|t3-inbox: queued: usage limit until $(date -d "@$((T0 + 7200))" +%H:%M)"
+is "...no wake, queued" "$(nhook)/$(items)" "0/1"
+rm -rf "$ST/t3-watch"
+reset; coord asleep; fresh 0; mkdir -p "$ST/morning-t3"; touch -d "@$((T0 - 3600))" "$ST/orchestrator.t3.json"
+printf '%s\tposted\t%s\t1\n' "$(date -d "@$T0" +%F)" "$T0" > "$ST/morning-t3/status"
+is "the morning claim pending -> exit 9" "$(du 10 "in the morning")" "9|t3-inbox: queued: morning coordinator pending"
+is "...no wake into the night coordinator" "$(nhook)/$(items)" "0/1"
+rm -rf "$ST/morning-t3"
+reset; coord asleep; fresh 0
+is "asleep, revive off -> wake at once, exit 0" "$(du 10 "first answer")/$(nhook)" "0|/1"
+has "...the digest names it as your user's answer" "### Your user's answer (via workbench-alex, " "$(prompt)"
+has "...with its text" "first answer" "$(prompt)"
+is "...kept as a receipt, not queued" "$(items)/$(receipts)" "0/1"
+coord idle
+is "idle, a wake 50 s ago -> exit 0, no second wake (under way)" "$(du 60 "second answer")/$(nhook)" "0|/1"
+is "...200 s later (inside debounceMin 10) -> a user item wakes anyway" "$(du 260 "third answer")/$(nhook)" "0|/2"
+has "...carrying both" "second answer" "$(prompt)"
+coord busy
+is "busy -> exit 0, no wake (its hooks hand it in)" "$(du 600 "while busy")/$(nhook)/$(items)" "0|/2/1"
+reset; coord asleep; fresh 0; echo 500 > "$TMP/hook.code"
+is "a failed wake -> exit 9, the watcher retries" "$(du 10 "webhook down")" "9|t3-inbox: queued: wake failed, the watcher retries"
+is "...not handed back: still queued" "$(items)/$(texts)" "1/webhook down"
+du 200 "webhook still down" >/dev/null
+F=$(cat "$ST/t3-report/failures.log")
+is "...one failures.log line for the episode" "$(wc -l <<<"$F" | tr -d ' ')" 1
+has "...naming it as your user's answer that stays queued" "	workbench-alex	-	unknown	answer wake failed (http 500), your user's answer stays queued with 1 item(s) in the inbox" "$F"
+echo 202 > "$TMP/hook.code"
+
+echo "U2. fresh coordinator instead of a wake (reviveTakeover)"
+cfgj "{\"quietReports\":{\"enabled\":true},$REV}"
+reset; coord asleep; fresh 0; ctx 400000 -7200
+is "asleep, idle 2 h, 400k >= 350k -> exit 9, no wake" "$(du 10 "cold and large")/$(nhook)" "9|t3-inbox: queued: a fresh coordinator is needed/0"
+reset; coord asleep; fresh 0; ctx 349000 -7200
+is "...349k (below the mark) -> wake" "$(du 10 "cold, small")/$(nhook)" "0|/1"
+reset; coord asleep; fresh 0; ctx 400000 -3000
+is "...400k, idle 50 min (under MM_STALE_SEAT_MIN 60) -> wake" "$(du 10 "warm, large")/$(nhook)" "0|/1"
+reset; coord asleep; fresh 0; ctx 400000 -3700
+is "...400k, idle 61 min -> exit 9" "$(du 10 "just cold")" "9|t3-inbox: queued: a fresh coordinator is needed"
+reset; coord idle; fresh 0; ctx 400000 -7200
+is "...live (idle) with 400k -> wake, never fresh" "$(du 10 "live large")/$(nhook)" "0|/1"
+cfgj "{\"quietReports\":{\"enabled\":true},$REV,\"handoverWarnTokens\":0}"
+reset; coord asleep; fresh 0; ctx 900000 -7200
+is "handoverWarnTokens 0 (off) -> wake" "$(du 10 "warn off")/$(nhook)" "0|/1"
+cfgj "{\"quietReports\":{\"enabled\":true},\"handoverWarnTokens\":350000}"
+reset; coord asleep; fresh 0; ctx 400000 -7200
+is "reviveTakeover absent -> wake as before" "$(du 10 "revive off")/$(nhook)" "0|/1"
+cfgj "{\"quietReports\":{\"enabled\":true},$REV}"
+reset; coord asleep; fresh 0; ctx 400000 -7200
+is "an important worker report into a cold, large seat -> queued, no wake" "$(dl 10 important w1 "READY cold")/$(nhook)/$(items)" "0/0/1"
+# wrapped: the session log closes the sidecar's session (a hex id, as the marker reader wants)
+HX=abcdef12-0000-4000-8000-0000000000aa
+reset; coord asleep; fresh 0; cp "$ST/orchestrator.t3.json" "$TMP/side.bak"
+jq --arg x "$HX" '.sessionId = $x' "$TMP/side.bak" > "$ST/orchestrator.t3.json"; chmod 600 "$ST/orchestrator.t3.json"
+ctx 100000 -300 "$HX"; mkdir -p "$H/logs"
+printf '## %s\n\n### %s – [coord] – day\n- Status: completed\n- Session: closed · %s\n' "$(date -d '-5 min' +%F)" "$(date -d '-5 min' +%H:%M)" "$HX" > "$H/logs/session-log.md"
+is "the holder wrapped (closed marker), idle 5 min, 100k -> exit 9, no wake" "$(du 10 "after the wrap")/$(nhook)" "9|t3-inbox: queued: a fresh coordinator is needed/0"
+mv -f "$TMP/side.bak" "$ST/orchestrator.t3.json"; rm -f "$H/logs/session-log.md"
+
+echo "U3. the receipt"
+cfgj '{"quietReports":{"enabled":true}}'
+reset; coord asleep; fresh 0; ctx 100000 -60
+du 10 "did you get it" >/dev/null
+is "a 202 -> one receipt" "$(receipts)/$(items)" "1/0"
+is "...its session not moved, 10 min later -> kept" "$(recv 610)/$(receipts)/$(items)" "/1/0"
+touch -d "@$((T0 + 700))" "$TX/sid-coord.jsonl"
+is "...the transcript moved after the wake -> the receipt is gone" "$(recv 720)/$(receipts)/$(items)" "/0/0"
+has "...logged" "	received	workbench-alex" "$(cat "$ST/t3-report/inbox.log")"
+reset; coord asleep; fresh 0; ctx 100000 -60
+du 10 "lost in a settled thread" >/dev/null
+is "unmoved 15 min after the wake -> back in the queue, the session named" "$(recv 911)/$(receipts)/$(items)" "sid-coord/0/1"
+is "...the item is whole again" "$(texts)" "lost in a settled thread"
+is "...a new answer is not sent into that session again (exit 9)" "$(du 920 "second try")/$(nhook)" "9|t3-inbox: queued: a fresh coordinator is needed/1"
+touch -d "@$((T0 + 1000))" "$TX/sid-coord.jsonl"
+is "...once its transcript moves, wakes go out again" "$(du 1010 "third try")/$(nhook)" "0|/2"
+has "...with everything that waited" "lost in a settled thread" "$(prompt)"
+
+echo "U4. quietReports off, the local twin from t3Url"
+cfgj '{}'
+reset; coord asleep; fresh 0
+is "quietReports off: a user item still queues and wakes" "$(du 10 "quiet off")/$(nhook)" "0|/1"
+reset; coord asleep; fresh 0; cp "$ST/orchestrator.t3.json" "$TMP/side.bak"
+jq --arg u "https://relay.invalid/v1/hooks/env-1/task/$SECRET" '.reportUrl = $u' "$TMP/side.bak" > "$ST/orchestrator.t3.json"; chmod 600 "$ST/orchestrator.t3.json"
+cfgj "{\"t3Url\":\"http://127.0.0.1:$PORT\"}"
+RC=$(T3_WAKE_NO_LOCAL="" T3_WAKE_RELAY_PREFIX=https://relay.invalid/v1/hooks/ T3CODE_PORT=1 du 10 "via the twin")
+is "a relay URL, no usable T3CODE_PORT -> the local twin at t3Url answers 202" "$RC/$(nhook)" "0|/1"
+cfgj '{}'
+RC=$(T3_WAKE_NO_LOCAL="" T3_WAKE_RELAY_PREFIX=https://relay.invalid/v1/hooks/ T3CODE_PORT=1 du 200 "no twin")
+is "...without t3Url: 127.0.0.1:\$T3CODE_PORT, nobody there, the relay fails -> queued" "${RC%%|*}/$(nhook)" "9/1"
+mv -f "$TMP/side.bak" "$ST/orchestrator.t3.json"; cfgj '{"quietReports":{"enabled":true}}'
 
 # ------------------------------------------------------------------------------------------ Z --
 echo "Z. secrets"

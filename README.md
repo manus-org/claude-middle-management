@@ -259,7 +259,9 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
 - `t3Url` (optional, default `http://127.0.0.1:$T3CODE_PORT`, port 8470 when unset; setup writes
   it), `t3TokenFile` (optional, default `~/.config/t3-threads/token`, mode 600) and
   `onLimitCommand` (optional, run once per usage-limit episode with the limited thread ids as
-  arguments): the T3 watcher and `scripts/t3-token.sh`. See [T3 Code](#t3-code).
+  arguments): the T3 watcher and `scripts/t3-token.sh`; `t3Url` is also where `t3-wake.sh` and
+  `morning-t3.sh` post the local twin of a relay webhook URL (0.19.4 for `t3-wake.sh`: a caller
+  without `T3CODE_PORT` no longer falls through to the cloud relay). See [T3 Code](#t3-code).
 - `quietReports` (optional, 0.15.0, default off): `{"enabled": true, "fallbackMin": 20,
   "debounceMin": 10}` sends worker reports into an awake T3 coordinator without a turn each.
   Machine-wide: it switches the coordinator of every scope. See [Quiet reports](#quiet-reports).
@@ -281,6 +283,11 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
   cue to prepare the handoff. A value at or above `handoverTokens` is ignored.
 - `morningTakeover`, `morningTaskUrlFile`, `morningWaitUntil`, `morningRoot` (optional, 0.11.1):
   the morning chain under T3 Code. See [Morning coordinator in T3 Code](#morning-coordinator-in-t3-code).
+- `reviveTakeover`, `reviveTaskUrlFile` (optional, 0.19.4, default off): the same takeover by day,
+  started by the T3 watcher when your user's answer or an important report waits for a coordinator
+  that is gone, wrapped, or cold and large. `reviveTakeover` has the shape of `morningTakeover`
+  (your user's standing word); `reviveTaskUrlFile` defaults to `~/.config/t3-threads/revive-task-url`
+  (mode 600). See [A fresh coordinator by day](#a-fresh-coordinator-by-day).
 - `replyTimestamp`, `intentCheck`, `intentCheckVerbs` (optional, 0.11.1, defaults `false` /
   `false` / the built-in list): the two prompt hooks. See [Optional prompt hooks](#optional-prompt-hooks).
 - `userName`, `okBy`, `remindAfterHours`, `remindWindow`, `pageCommand` (optional, defaults
@@ -568,6 +575,60 @@ changes the worker side of the Stop hook; everything else stays as above.
   quiet).
 - **Not covered.** A report sent by hand with `t3-wake.sh` (a session outside T3, pathfinder's push,
   an inbound phone poller, the watcher's own wakes) keeps its own turn. The flag is machine-wide, for every scope.
+- **Your user's own answers (0.19.4, class `user`).** A channel that carries your user's answer to
+  the coordinator (a decision page, a phone poller; a sender that is no session) calls
+  `MM_SESSION_ID="" t3-inbox.py deliver <marker dir> user <from> <file>`, with or without
+  `quietReports`. The item is always written first, also when no sidecar exists, and never handed
+  back. It wakes at once (no debounce, no fallback wait) unless the coordinator is busy (its hooks
+  hand it in) or a wake is under way. Exit 0 = delivered (202, under way, or busy); 9 = queued, the
+  watcher acts on it, the last stderr line says why: `queued: usage limit until HH:MM`,
+  `queued: morning coordinator pending`, `queued: a fresh coordinator is needed`, `queued: wake
+  failed, the watcher retries`; 4 = queued, but no watcher tick for 30 min (`t3-inbox.tick`), or the
+  inbox could not take it: nobody will act, the caller alarms (`NOT delivered (...)`). In the digest
+  it reads "Your user's answer (via <from>, HH:MM)". With `quietReports` off the watcher's inbox
+  tick still runs and handles user items only.
+- **The receipt.** HTTP 202 means T3 took the request, not that the thread ran. So a user item woken
+  with 202 stays as `<name>.receipt` until the woken session's transcript moves after the wake; the
+  watcher checks every tick. Not moved within 15 min: it goes back into the queue, no further wake
+  goes into that session (`<inbox>/.no-receipt`, cleared by its next move), and your user gets one
+  notice; with the daytime takeover the seat then needs a fresh coordinator once the old one has
+  been quiet for `MM_STALE_SEAT_MIN`.
+- **Held by a usage limit.** A user item is held like a digest (above); the watcher sends one line
+  per limit episode: "Your answer is saved: it reaches the coordinator after HH:MM" (T3's reset time,
+  else "after the limit resets"). A failed wake writes one `failures.log` line per failure episode,
+  which the watcher names as your answer that stays queued.
+
+### A fresh coordinator by day
+
+0.19.4, off unless `reviveTakeover` is set. Waking a coordinator that has been quiet for an hour
+re-pays its whole context uncached; past `handoverWarnTokens` its own banner tells it to hand over
+anyway. So when an important report or your user's answer waits and the seat needs a fresh
+coordinator, nobody is woken: the watcher starts one, the way the morning chain does.
+
+- **When.** `t3-inbox.py fresh_needed()`, read off disk with `peer-state.py --session-id <sid>
+  --json` (the holder is never messaged): no seat (no sidecar, and the marker names nobody live);
+  the sidecar's session asleep and wrapped (its closed marker); or asleep, quiet for
+  `MM_STALE_SEAT_MIN` (60 min) AND at or over `handoverWarnTokens` (default 250000, `0` = off), or
+  past a missed receipt. A live coordinator is never replaced. While that holds and the takeover is
+  allowed, `t3-inbox.py` sends no wake for important and user items (`queued: a fresh coordinator is
+  needed`). Without `reviveTakeover` everything wakes as before; only a user item with no seat at all
+  gets one notice per seat episode ("Your answer waits: no coordinator holds the seat").
+- **The start** (`t3-watch.py`, its revive step, every tick after the inbox tick). Guards: the item
+  waits; not usage-limited; no morning or revive post younger than 30 min; the scope is
+  `morningRoot`'s (the default scope without scopes: the takeover task runs in that T3 project);
+  one start per seat episode (the sidecar's `sessionId`, or `none`); at most 3 a day. Then
+  `morning-t3.sh --revive`: one `claude -p` probe, no wait (limited → status `limited`, no POST, one
+  notice, retried on a later tick), then a POST `{"from":"revive-t3","date":…}` to the webhook task
+  in `reviveTaskUrlFile` (local twin first, at `t3Url`). One notice names why: "Starting a fresh
+  coordinator for your answer (old one: 412k tokens, idle 3 h)". State
+  `<seat dir>/revive-t3/status` (`<date> <posted|limited|claimed|refused|failed> <epoch> <pid>`).
+- **The takeover** (`orchestrator.sh claim --thread <id> --revive`): the `--morning` route with its
+  own word `reviveTakeover` and its own status file; a holder whose wrap closed its session needs no
+  quiet hour; it prints no morning-ritual line. The thread's prompt (setup step 8b): claim, report
+  task, `t3-bind`, settle the predecessor, read the board and the predecessor, `open-items.py list`,
+  then work what waits (it arrives as hook context after `t3-bind`), and stop. No morning ritual.
+- **Loud, never a loop.** A failed start, a refused claim, or no claim within 30 min of the post:
+  one red notice with the command to try again, no new start until the seat changes hands.
 - **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the
   update keeps its old hooks (no inbox hook, no Stop drain) until it restarts, e.g. after T3's
   30-min idle end or a new claim. Until then its status reports arrive only inside digests.
@@ -654,7 +715,8 @@ the rest: `{"type": "webhook"}` runs once per request, `bindToCurrentThread: fal
 top-level thread per run, and the run sees the request only through prompt placeholders.
 
 Use this OR the [headless morning ritual](#headless-morning-ritual), not both: both act at the same
-time. A machine without T3 Code keeps the headless one.
+time. A machine without T3 Code keeps the headless one. The same start by day, for a waiting answer
+or report: [A fresh coordinator by day](#a-fresh-coordinator-by-day).
 
 ## Follow-through
 

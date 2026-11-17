@@ -14,6 +14,10 @@
 #   O  quiet reports: the inbox tick (fallback, never for status, debounce, dry-run, morning hold,
 #      T3 API down, one failures line per episode, 24-h drop, held while the coordinator is
 #      usage-limited and one digest when the limit is over)
+#   R  a fresh coordinator (reviveTakeover): no seat, cold AND large (both sides), the guards (usage
+#      limit, morning post, once per seat episode, 3 a day), probe limited, a failed start, refused /
+#      no claim within 30 min, revive off; a user's answer held in a limit (one notice per episode,
+#      delivered after it), the 15-min receipt, the answer line of "report lost"
 #   Z  no webhook URL or token in any output
 # One local HTTP stub serves both the T3 shell (GET, checks the protocol header and the bearer) and
 # the webhook (POST, answers 202, 429 or sleeps past the timeout). `claude` is a stub on PATH.
@@ -35,7 +39,7 @@ has()   { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "contains: $2" "$3" ;; esa
 lacks() { case "$3" in *"$2"*) bad "$1" "lacks: $2" "$3" ;; *) ok "$1" ;; esac; }
 
 S=$TMP/s; mkdir -p "$S"
-cp "$SRC"/{t3-watch.py,t3-wake.sh,t3-inbox.py,peer-state.py,t3-token.sh,scope.py,config-check.sh} "$S/"
+cp "$SRC"/{t3-watch.py,t3-wake.sh,t3-inbox.py,peer-state.py,t3-token.sh,scope.py,config-check.sh,morning-t3.sh} "$S/"
 H=$TMP/home; CFG=$H/.claude; mkdir -p "$CFG/state" "$H/.t3/userdata/logs/provider" "$TMP/bin" "$TMP/repo" "$TMP/ff"
 TOKEN="tok-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 printf '%s\n' "$TOKEN" > "$TMP/token"; chmod 600 "$TMP/token"
@@ -467,7 +471,7 @@ qcoord() { printf '{"pid":%s,"sessionId":"sid-coord","kind":"interactive","statu
 qreset() { reset; rm -rf "$QI" "$QS" "$CFG/state/scopes/ff/t3-inbox"; mkdir -p "$CFG/sessions"; shell "[$COORD_OK]"; }
 qn() { find "$QI" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' '; }
 qreset; cp "$TMP/cfg.bak" "$CFG/middle-management.json"; qcoord busy; qitem i1 important 0 "READY: lane q"
-tick 1500; is "quiet mode off: the tick leaves the inbox alone (no wake, no stamp)" "$(nhook)/$(qn)/$([ -e "$QS" ] && echo stamp || echo none)" "0/1/none"
+tick 1500; is "quiet mode off: an important item is left alone (no wake); the stamp is written (user items wake)" "$(nhook)/$(qn)/$([ -e "$QS" ] && echo stamp || echo none)" "0/1/stamp"
 jq '.quietReports = {enabled: true}' "$TMP/cfg.bak" > "$CFG/middle-management.json"
 qreset; qcoord busy; qitem i1 important 0 "READY: lane q"
 tick 600; is "on, busy, an important item 10 min old -> no wake" "$(nhook)/$(qn)" "0/1"
@@ -504,7 +508,7 @@ LIMITED_NOW="\"status\":\"failed\",\"lastErrorClass\":\"usage_limit\",\"usageLim
 qreset; rm -f "$CFG/sessions/c.json"; shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED_NOW}]"
 qitem h1 important 0 "READY: held in the limit"; qitem h2 status 5 "status: held too"
 tick 10; is "coordinator usage-limited, asleep, an important item -> held, no wake" "$(nhook)/$(qn)" "0/2"
-OUT=$(tick 20 --dry-run); has "...dry-run says why" "INBOX   scope default: 2 pending (1 important), held (coordinator usage-limited)" "$OUT"
+OUT=$(tick 20 --dry-run); has "...dry-run says why" "INBOX   scope default: 2 pending (1 important), held (usage limit until $(date -d "@$((T0 + 7200))" +%H:%M))" "$OUT"
 tick 1300; is "...past fallbackMin, still limited -> still held" "$(nhook)/$(qn)" "0/2"
 tick 1810; is "...the Keepalive retry still goes out, the items stay" "$(hooks | jq -r .report)/$(qn)" "Keepalive/2"
 shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",\"status\":\"completed\",\"lastErrorClass\":\"usage_limit\",\"latestRunId\":\"run:2\"}]"
@@ -524,6 +528,108 @@ qitem h4 important 0 "READY: after the reset"
 tick 10; tick 1300; is "limited, before the reset time -> held" "$(nhook)/$(qn)" "0/1"
 tick 7210; is "...past the reset time (no Keepalive has ended the episode yet) -> the digest goes out" "$(hooks | tail -1 | jq -r .prompt | grep -c 'READY: after the reset')/$(qn)" "1/0"
 cp "$TMP/cfg.bak" "$CFG/middle-management.json"; rm -rf "$QI" "$QS" "$CFG/sessions/c.json"
+
+# ------------------------------------------------------------------------------------------ R --
+echo "R. a fresh coordinator (revive)"
+RURL="http://127.0.0.1:$PORT/api/hooks/task%3Arevive/$SECRET"; (umask 077; printf '%s\n' "$RURL" > "$TMP/revive-url")
+jq --arg u "$TMP/revive-url" --arg r "$TMP/repo" '. + {reviveTakeover: {allowed: true, okBy: "Alex, 2026-11-17"},
+  reviveTaskUrlFile: $u, morningRoot: $r, handoverWarnTokens: 350000}' "$TMP/cfg.bak" > "$TMP/cfg.rev"
+TXD=$CFG/projects/-x; mkdir -p "$TXD"
+ctx() {  # $1 = context tokens, $2 = transcript mtime (seconds after T0) [, $3 = session id]
+  printf '{"type":"user","message":{"content":"hi"}}\n{"type":"assistant","message":{"usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s}}}\n' \
+    "$(($1 - 1))" > "$TXD/${3:-sid-coord}.jsonl"; touch -d "@$((T0 + $2))" "$TXD/${3:-sid-coord}.jsonl"; }
+rreset() { qreset; rm -rf "$CFG/state/revive-t3" "$CFG/state/morning-t3" "$CFG/state/orchestrator"; rm -f "$TXD"/*.jsonl
+           rm -f "$CFG/sessions/c.json"; cp "$TMP/cfg.rev" "$CFG/middle-management.json"; echo ok > "$TMP/probe.mode"; sidecar mcp:coord; }
+rstat() { cut -f2 "$CFG/state/revive-t3/status" 2>/dev/null; }
+froms() { hooks | jq -r .from | tr '\n' ' '; }
+rposted() {  # $1 = state, $2 = epoch (seconds after T0): rewrite the revive status
+  mkdir -p "$CFG/state/revive-t3"; printf '%s\t%s\t%s\t1\n' "$(date -d "@$T0" +%F)" "$1" "$((T0 + $2))" > "$CFG/state/revive-t3/status"; }
+rreset; rm -f "$SIDE"; qitem u1 user 0 "Yes, ship it"
+tick 10
+is "no seat, a user's answer waits -> morning-t3.sh --revive posts to the takeover task" "$(froms)/$(rstat)" "revive-t3 /posted"
+has "...one notify naming why" "🟡 Starting a fresh coordinator for your answer (no coordinator holds the seat)" "$(notes)"
+is "...the answer stays queued for the fresh coordinator" "$(qn)" 1
+tick 610; is "...the next tick starts no second one (posted < 30 min, one per seat episode)" "$(nhook)/$(nnote)" "1/1"
+rposted posted 10; tick 1900
+has "no claim within 30 min of the post -> one red notify" "🔴 The fresh coordinator did not take the seat" "$(notes)"
+has "...saying why" "it has not claimed the seat within 30 min" "$(notes)"
+tick 2500; is "...once, and no retry while the seat has not changed hands" "$(grep -c 'did not take the seat' "$TMP/notify.log")/$(nhook)" "1/1"
+rreset; rm -f "$SIDE"; qitem u1 user 0 "refused case"; rposted refused 0
+mkdir -p "$CFG/state/t3-watch"; jq -n --arg d "$(date -d "@$T0" +%F)" '{revive: {key: "none", day: $d, count: 1, started: 1}}' > "$CFG/state/t3-watch/default.json"
+tick 10; has "the claim was refused -> one red notify" "its claim was refused" "$(notes)"; is "...no new start" "$(nhook)" 0
+rreset; ctx 400000 -7200; qitem u1 user 0 "into a cold, large seat"
+tick 10
+is "asleep, idle 2 h, 400k -> a fresh coordinator, the old one is not woken" "$(froms)" "revive-t3 "
+has "...the notify names the old one" "(old one: 400k tokens, idle 2 h)" "$(notes)"
+rreset; ctx 300000 -7200; qitem u1 user 0 "into a cold, small seat"
+tick 10; is "...300k (below 350k) -> no fresh one, the answer wakes the old one" "$(froms)/$(qn)" "t3-watch /0"
+has "...as your user's answer" "### Your user's answer (via w1, " "$(hooks | tail -1 | jq -r .prompt)"
+rreset; ctx 400000 -1800; qitem u1 user 0 "into a warm, large seat"
+tick 10; is "...400k but idle 30 min -> no fresh one, a wake" "$(froms)" "t3-watch "
+rreset; ctx 400000 -7200; qitem i1 important 0 "READY: lane z"
+jq '.quietReports = {enabled: true}' "$TMP/cfg.rev" > "$CFG/middle-management.json"
+tick 10; is "an important worker report into a cold, large seat -> a fresh coordinator too" "$(froms)" "revive-t3 "
+has "...named as a worker report" "Starting a fresh coordinator for a worker report" "$(notes)"
+rreset; ctx 400000 -7200; qitem u1 user 0 "limited"
+shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED_NOW}]"
+tick 10; is "the coordinator usage-limited -> no fresh one (same account)" "$(nhook)" 0
+rreset; ctx 400000 -7200; qitem u1 user 0 "morning"; mkdir -p "$CFG/state/morning-t3"
+printf '%s\tposted\t%s\t1\n' "$(date -d "@$T0" +%F)" "$T0" > "$CFG/state/morning-t3/status"
+tick 600; is "the morning thread posted 10 min ago -> no fresh one" "$(nhook)" 0
+rreset; ctx 400000 -7200; qitem u1 user 0 "cap"
+mkdir -p "$CFG/state/t3-watch"; jq -n --arg d "$(date -d "@$T0" +%F)" '{revive: {key: "other", day: $d, count: 3}}' > "$CFG/state/t3-watch/default.json"
+tick 10; is "3 started today already -> no fourth" "$(nhook)" 0
+has "...one notify" "🔴 No fresh coordinator: 3 were started today already" "$(notes)"
+tick 610; is "...once a day" "$(grep -c '3 were started today' "$TMP/notify.log")" 1
+# once per seat episode: the episode is the sidecar's sessionId
+rreset; ctx 400000 -7200; qitem u1 user 0 "episode one"
+tick 10; rposted claimed 20
+tick 610; is "a started revive, claimed, the same seat still cold -> no second start in that episode" "$(nhook)" 1
+jq '.sessionId = "sid-new"' "$SIDE" > "$SIDE.x" && mv "$SIDE.x" "$SIDE" && chmod 600 "$SIDE"; ctx 400000 -7200 sid-new
+tick 1210; is "...a new seat holder, cold and large again -> a new episode, one more start" "$(nhook)" 2
+rreset; ctx 400000 -7200; qitem u1 user 0 "probe says limited"; echo limit > "$TMP/probe.mode"
+tick 10; is "the probe says usage limit -> status limited, no POST" "$(rstat)/$(nhook)" "limited/0"
+has "...one notify" "🟡 Your answer is saved: a fresh coordinator starts once the usage limit is over" "$(notes)"
+tick 610; is "...retried on the next tick, no second notify" "$(nprobe)/$(grep -c 'starts once the usage limit' "$TMP/notify.log")" "2/1"
+echo ok > "$TMP/probe.mode"; tick 1210; is "...limit over -> started" "$(rstat)/$(froms)" "posted/revive-t3 "
+rreset; ctx 400000 -7200; qitem u1 user 0 "start fails"; echo 500 > "$TMP/hook.mode"
+tick 10; has "the takeover task answers 500 -> one red notify" "🔴 A fresh coordinator could not be started for your answer" "$(notes)"
+has "...with the command to try again" "To try again: bash $S/morning-t3.sh --revive" "$(notes)"
+tick 610; is "...no retry in that seat episode" "$(nhook)" 1
+rreset; rm -f "$SIDE"; qitem u1 user 0 "no revive"; cp "$TMP/cfg.bak" "$CFG/middle-management.json"
+tick 10; tick 610
+is "reviveTakeover absent, no seat -> no start, one notify for the waiting answer" "$(nhook)/$(grep -c 'Your answer waits: no coordinator holds the seat' "$TMP/notify.log")" "0/1"
+cp "$TMP/cfg.rev" "$CFG/middle-management.json"; OUT=$(tick 1210 --dry-run)
+has "dry-run prints the start instead of doing it" "REVIVE  scope default: morning-t3.sh --revive (no coordinator holds the seat)" "$OUT"
+is "...nothing posted" "$(nhook)" 0
+sidecar mcp:coord
+
+echo "R2. a user's answer in a usage limit, the receipt, report lost"
+rreset; cp "$TMP/cfg.bak" "$CFG/middle-management.json"; ctx 100000 -60; qitem u1 user 0 "held by the limit"
+shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED_NOW}]"
+tick 10; is "coordinator limited, a user's answer -> held" "$(nhook)/$(qn)" "0/1"
+has "...one notify: saved, comes after the reset time" "🟡 Your answer is saved: it reaches the coordinator after $(date -d "@$((T0 + 7200))" +%H:%M)" "$(notes)"
+tick 600; is "...once per limit episode" "$(grep -c 'Your answer is saved' "$TMP/notify.log")" 1
+shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",\"status\":\"completed\",\"lastErrorClass\":\"usage_limit\",\"latestRunId\":\"run:2\"}]"
+tick 1200; is "...limit over -> delivered in that tick" "$(froms)/$(qn)" "t3-watch /0"
+has "...the answer" "held by the limit" "$(hooks | tail -1 | jq -r .prompt)"
+rreset; cp "$TMP/cfg.bak" "$CFG/middle-management.json"; ctx 100000 -60; qitem u1 user 0 "into a thread that runs nothing"
+tick 10; is "a wake with 202 -> a receipt, not deleted" "$(nhook)/$(ls "$QI" | grep -c '\.receipt$')" "1/1"
+tick 600; is "...10 min, the transcript unmoved -> still waiting for it" "$(ls "$QI" | grep -c '\.receipt$')/$(qn)" "1/0"
+tick 1000; is "...15 min unmoved -> back in the queue, no second wake into it" "$(qn)/$(nhook)" "1/1"
+has "...one notify" "⏳ Your answer reached the coordinator's thread, but it did not react within 15 min" "$(notes)"
+has "...what to do without the daytime takeover" "Open the coordinator in T3 and send it any message" "$(notes)"
+tick 1600; is "...no second wake, no second notify" "$(nhook)/$(grep -c 'did not react' "$TMP/notify.log")" "1/1"
+rreset; ctx 100000 -7200; qitem u1 user 0 "receipt then revive"
+tick 10; tick 1000
+is "with reviveTakeover: unmoved 15 min and quiet for an hour -> a fresh coordinator" "$(froms)" "t3-watch revive-t3 "
+has "...naming why" "(the old one did not react to your answer, idle 2 h)" "$(notes)"
+reset; FL=$CFG/state/t3-report/failures.log
+printf '%s\tworkbench-alex\t-\tunknown\tanswer wake failed (http 429), your user'"'"'s answer stays queued with 1 item(s) in the inbox; the watcher retries every 10 min\n' "$(date -Is)" >> "$FL"
+tick 0; has "report lost: an answer line -> named as your answer, queued" "your answer: refused (HTTP 429); it stays queued and is retried every 10 min" "$(notes)"
+has "...nothing to do" "Nothing to do now." "$(notes)"
+lacks "...not the worker text" "still in that session" "$(notes)"
+cp "$TMP/cfg.bak" "$CFG/middle-management.json"; rm -rf "$QI" "$CFG/state/revive-t3" "$TXD"; rm -f "$QS" "$CFG/sessions/c.json"; sidecar mcp:coord
 
 # ------------------------------------------------------------------------------------------ Z --
 echo "Z. secrets"

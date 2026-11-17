@@ -447,6 +447,10 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   head (single report, digest and "Worker reports (quiet)"); a message from a sender that is no
   session (the watcher, your user's channel poller), a bare `Keepalive` and the takeover wake "seat
   taken over by ..." arrive without it.
+  Your user's own answer from a channel that is no session (a decision page) goes through the same
+  inbox as class `user` (README, "Quiet reports"): it wakes the coordinator at once, arrives as
+  "Your user's answer (via <channel>, HH:MM)", and is held, never lost, through a usage limit or
+  while no coordinator holds the seat. Answer it in that turn; it is your user's word, not a report.
   A worker outside T3 Code whose coordinator sits in a T3 thread reports with
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/t3-wake.sh" "<its name>" <file with the report>` (exit 0 =
   delivered); a peer message is not the report channel to a T3 thread.
@@ -471,7 +475,15 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   thread list and notifies your user on a usage limit, a click pending >10 min, a run stuck >3 h,
   a lost report, an open handover or a folder without coordinator; for what the coordinator must
   do it wakes the coordinator. It also renders the topics table and sends the reminders
-  (README, "Follow-through").
+  (README, "Follow-through"). With `reviveTakeover` set it starts a fresh coordinator instead of a
+  wake when an answer or important report waits and the seat is empty, wrapped, or cold and large
+  (README, "A fresh coordinator by day").
+- **A fresh coordinator by day.** A thread started by the takeover task claims with
+  `/orchestrator claim --thread <currentThreadId> --revive`, creates its report task, runs
+  `t3-bind`, settles the predecessor the claim names (never `t3_thread_send` it), reads the board,
+  `peer-state.py --session-id <old sessionId>` and `open-items.py list`, then works the answers and
+  reports that arrive as hook context, and stops. It runs no morning ritual. Refused: say what the
+  claim printed and wait for your user.
 - **Settle, never archive.** Settling is the coordinator's step, with a completeness check right
   before it (`middle-management:morning-ritual` step 3, "T3 Code threads", the one definition).
   A worker settles nothing (`middle-management:wrap`, "In a T3 Code thread"). A T3 worktree

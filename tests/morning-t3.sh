@@ -11,7 +11,8 @@
 #   B  watchdog: missing claim / ritual -> alarm, both today -> quiet, cancelled / waiting -> quiet
 #   C  unit-failure-alarm: notifyFallbackCommand when notifyCommand fails or is missing
 #   D  t3-report.sh: the morning thread's turn is not sent to the night coordinator before its claim
-#   E  templates   F  config shape   Z  no webhook secret in any output
+#   E  templates   F  config shape   G  --revive: own word and URL file, one probe and no wait (limited ->
+#      status limited, exit 0, no POST), failures   Z  no webhook secret in any output
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -276,13 +277,48 @@ echo "== F: config shape (config-check.sh validate) =="
 vcfg() { printf '%s' "$1" > "$C/middle-management.json"; CLAUDE_CONFIG_DIR="$C" bash "$P/scripts/config-check.sh" validate; echo $?; }
 setup
 for c in '{"morningTakeover":{"allowed":true,"okBy":"Alex, 2026-10-21"}}' '{"morningTakeover":{"allowed":false}}' \
-         '{"morningWaitUntil":"9:30"}' '{"morningRoot":"/x","morningTaskUrlFile":"~/u","notifyFallbackCommand":"x"}'; do
+         '{"morningWaitUntil":"9:30"}' '{"morningRoot":"/x","morningTaskUrlFile":"~/u","notifyFallbackCommand":"x"}' \
+         '{"reviveTakeover":{"allowed":true,"okBy":"Alex, 2026-11-17"},"reviveTaskUrlFile":"~/r"}' '{"reviveTakeover":{"allowed":false}}'; do
   is "valid: $c" "$(vcfg "$c")" 0
 done
 for c in '{"morningTakeover":{"allowed":true}}' '{"morningTakeover":{"allowed":true,"okBy":" "}}' '{"morningTakeover":true}' \
-         '{"morningWaitUntil":"25:00"}' '{"morningRoot":"rel"}' '{"notifyFallbackCommand":3}' '{"morningTaskUrlFile":false}'; do
+         '{"morningWaitUntil":"25:00"}' '{"morningRoot":"rel"}' '{"notifyFallbackCommand":3}' '{"morningTaskUrlFile":false}' \
+         '{"reviveTakeover":{"allowed":true}}' '{"reviveTakeover":true}' '{"reviveTaskUrlFile":1}'; do
   is "invalid: $c" "$(vcfg "$c")" 1
 done
+
+echo "== G: --revive (the daytime start for the watcher) =="
+rsetup() {  # setup + the daytime word and its own task URL file
+  setup; jq --arg u "$C/revive-url" '. + {reviveTakeover: {allowed: true, okBy: "Alex, 2026-11-17"}, reviveTaskUrlFile: $u}' \
+    "$C/middle-management.json" > "$C/x" && mv "$C/x" "$C/middle-management.json"
+  (umask 077; printf 'http://127.0.0.1:%s/api/hooks/task-rv/%s\n' "$PORT" "$SECRET" > "$C/revive-url"); }
+rtrig() { env PATH="$BIN:$PATH" HOME="$TMP/home" CLAUDE_CONFIG_DIR="$C" bash "$S/morning-t3.sh" --revive 2>&1; }
+rstatus() { cut -f2 "$C/state/revive-t3/status" 2>/dev/null; }
+rsetup
+OUT=$(rtrig); RC=$?; ALL="$ALL$OUT"
+is "free probe -> POST to the takeover task -> exit 0" "$RC" 0
+is "...to its own URL file" "$(cut -d' ' -f1 "$TMP/hook.log")" "/api/hooks/task-rv/$SECRET"
+is "...body: from revive-t3 + date" "$(cut -d' ' -f2- "$TMP/hook.log" | jq -c .)" "{\"from\":\"revive-t3\",\"date\":\"$(date +%F)\"}"
+is "...status revive-t3 posted, the morning status untouched" "$(rstatus)/$(status)" "posted/"
+lacks "...the status file has no URL" "$SECRET" "$(cat "$C/state/revive-t3/status")"
+rsetup; echo limit > "$TMP/probe.plan"
+OUT=$(rtrig); RC=$?; ALL="$ALL$OUT"
+is "usage limit -> exit 0, status limited, no POST" "$RC/$(rstatus)/$([ -f "$TMP/hook.log" ] && echo posted || echo none)" "0/limited/none"
+is "...one probe, no wait loop" "$(cat "$TMP/probe.n")" 1
+is "...no notify (the watcher tells the user once)" "$(notes)" ""
+rsetup; jq 'del(.reviveTakeover)' "$C/middle-management.json" > "$C/x" && mv "$C/x" "$C/middle-management.json"
+OUT=$(rtrig); RC=$?; ALL="$ALL$OUT"
+is "no reviveTakeover (morningTakeover is not enough) -> exit 1, no POST" "$RC/$([ -f "$TMP/hook.log" ] && echo posted || echo none)" "1/none"
+has "...says so" "No fresh coordinator: the daytime takeover is not allowed in the config" "$OUT"
+is "...status failed" "$(rstatus)" failed
+rsetup; rm -f "$C/revive-url"
+OUT=$(rtrig); RC=$?; ALL="$ALL$OUT"
+is "no takeover URL file -> exit 1" "$RC" 1; has "...names the task and the file" "the address of the T3 takeover task is not stored" "$OUT"
+has "...points at its setup step" "(step 8b)" "$OUT"
+rsetup; echo 500 > "$TMP/hook.mode"
+OUT=$(rtrig); RC=$?; ALL="$ALL$OUT"
+is "the task answers 500 -> exit 1" "$RC/$(rstatus)" "1/failed"; has "...says which thread" "T3 did not start the takeover thread" "$OUT"
+rm -f "$TMP/hook.mode"
 
 echo "== Z =="
 lacks "no webhook secret in any output" "$SECRET" "$ALL"

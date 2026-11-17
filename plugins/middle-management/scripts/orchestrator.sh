@@ -6,8 +6,9 @@
 #   The sidecar it writes is read by hooks/t3-report.sh, hooks/session-role.sh, scripts/t3-wake.sh,
 #   scripts/t3-watch.py, scripts/peer-state.py and scripts/orch-heartbeat.sh.
 #   The marker it writes is read by hooks/session-role.sh and scripts/morning-t3.sh (--check: claimed
-#   today?); the wrap entry it backfills on an expired seat or a morning takeover (claim --morning) is
-#   read by scripts/peer-state.py. orchestrator.t3.previous.json (morning takeover) is read by t3-bind
+#   today?); the wrap entry it backfills on an expired seat or a morning / daytime takeover (claim
+#   --morning, claim --revive) is read by scripts/peer-state.py. claim --revive writes
+#   <seat dir>/revive-t3/status, read by scripts/t3-watch.py and scripts/t3-inbox.py. orchestrator.t3.previous.json (morning takeover) is read by t3-bind
 #   and status here only.
 #   Calls scripts/peer-state.py (stale-seat check on claim, holder line on status) and, only
 #   when the config has a "scopes" key or "scopeMode": "per-root", scripts/scope.py (which seat this
@@ -82,14 +83,18 @@ my_thread() {
 }
 norm() { printf '%s' "${1//:/-}"; }
 # Flags (anywhere after the subcommand): --t3-asleep-ok (only on the user's word), --morning (the
-# morning thread; only with the standing word in the config key morningTakeover), --thread/--title/
-# --task/--model (t3-bind, claim --thread), --to-thread/--to-title (t3-handover).
-ASLEEP_OK=""; MORNING=""; F_THREAD=""; F_TITLE=""; F_TASK=""; F_MODEL=""; F_TO_THREAD=""; F_TO_TITLE=""; POS=()
+# morning thread; only with the standing word in the config key morningTakeover), --revive (the
+# fresh coordinator started by day by scripts/t3-watch.py: the --morning route with its own word
+# reviveTakeover and status file revive-t3/status, no morning-ritual line; a holder whose wrap
+# closed its session needs no quiet time), --thread/--title/--task/--model (t3-bind, claim
+# --thread), --to-thread/--to-title (t3-handover).
+ASLEEP_OK=""; MORNING=""; REVIVE=""; F_THREAD=""; F_TITLE=""; F_TASK=""; F_MODEL=""; F_TO_THREAD=""; F_TO_TITLE=""; POS=()
 CMD="${1:-status}"; [ $# -gt 0 ] && shift
 while [ $# -gt 0 ]; do
   case "$1" in
     --t3-asleep-ok) ASLEEP_OK=1 ;;
     --morning)   MORNING=1 ;;
+    --revive)    MORNING=1; REVIVE=1 ;;
     --thread)    F_THREAD="${2:-}"; shift ;;
     --title)     F_TITLE="${2:-}"; shift ;;
     --task)      F_TASK="${2:-}"; shift ;;
@@ -101,6 +106,9 @@ while [ $# -gt 0 ]; do
   shift
 done
 set -- "$CMD" "${POS[@]}"
+# The takeover route's words: the morning thread's, or the daytime one's.
+ROUTE=--morning; WORD=morningTakeover; WHEN=morning
+[ -n "$REVIVE" ] && { ROUTE=--revive; WORD=reviveTakeover; WHEN=daytime; }
 
 # Alive = a registry entry with this sessionId, kind "interactive" and a pid that answers
 # kill -0 — the same rule hooks/session-role.sh applies (the sessionId is the identity, .name
@@ -268,12 +276,12 @@ backfill() {
 # A lost race (RACE LOST) writes nothing: the winner's claim records the outcome.
 morning_outcome() {
   local rc=$? f d st state cmd msg
-  f="$(dirname "$MARKER")/morning-t3/status"
+  f="$(dirname "$MARKER")/$([ -n "$REVIVE" ] && echo revive || echo morning)-t3/status"
   IFS=$'\t' read -r d st _ < "$f" 2>/dev/null || return 0
   [ "$d" = "$(date +%F)" ] && [ "$st" = posted ] && [ -z "${RACE_LOST:-}" ] || return 0
   if [ "$rc" -eq 0 ]; then state=claimed; else state=refused; fi
   printf '%s\t%s\t%s\t%s\t%s\n' "$d" "$state" "$(date +%s)" "$$" "$MY_ID" > "$f.tmp" 2>/dev/null && mv -f "$f.tmp" "$f"
-  [ "$state" = refused ] || return 0
+  [ "$state" = refused ] && [ -z "$REVIVE" ] || return 0     # --revive: scripts/t3-watch.py tells the user
   cmd=$(jq -r '.notifyCommand // ""' "$(bash "$DIR/config-check.sh" file)" 2>/dev/null)
   msg="🔴 The morning coordinator could not take over: the night coordinator keeps the seat
 
@@ -315,11 +323,11 @@ case "${1:-status}" in
     # seat looks like: a flag that silently degrades to a plain claim would hide a missing word.
     if [ -n "$MORNING" ]; then
       trap morning_outcome EXIT
-      OKBY=$(jq -r 'if (.morningTakeover | type) == "object" and .morningTakeover.allowed == true
-                    then (.morningTakeover.okBy | strings | select(test("\\S"))) else empty end' \
+      OKBY=$(jq -r --arg w "$WORD" 'if (.[$w] | type) == "object" and .[$w].allowed == true
+                    then (.[$w].okBy | strings | select(test("\\S"))) else empty end' \
                "$(bash "$DIR/config-check.sh" file)" 2>/dev/null)
       [ -n "$OKBY" ] || {
-        echo "REFUSED: claim --morning needs the user's standing word in the config: \"morningTakeover\": {\"allowed\": true,"
+        echo "REFUSED: claim $ROUTE needs the user's standing word in the config: \"$WORD\": {\"allowed\": true,"
         echo "  \"okBy\": \"<who, date>\"} (/middle-management-setup). Nothing changed."
         exit 1; }
     fi
@@ -355,18 +363,20 @@ case "${1:-status}" in
         # holder that was still typing a minute before its thread went idle keeps its seat. Fail closed.
         check_min STALE_MIN MM_STALE_SEAT_MIN
         read_peer "$HID"
+        # --revive: a holder whose own wrap closed its session (closed marker) is done; no quiet time.
         case "$W" in
-          yes|no) [ "${IDLE_S:-x}" -ge "$((STALE_MIN * 60))" ] 2>/dev/null || {
-                    echo "REFUSED (--morning): the asleep coordinator $HID moved $IDLE ago (threshold ${STALE_MIN} min, MM_STALE_SEAT_MIN)."
+          yes|no) { [ -n "$REVIVE" ] && [ "$CLOSED" = yes ]; } || [ "${IDLE_S:-x}" -ge "$((STALE_MIN * 60))" ] 2>/dev/null || {
+                    echo "REFUSED ($ROUTE): the asleep coordinator $HID moved $IDLE ago (threshold ${STALE_MIN} min, MM_STALE_SEAT_MIN)."
                     echo "  It may still be in use. Nothing changed; your user decides (claim --t3-asleep-ok on their word)."
                     exit 1; } ;;
-          *) echo "REFUSED (--morning): the asleep coordinator $HID could not be read off disk (${NOREAD:-no usable answer from peer-state.py})."
+          *) echo "REFUSED ($ROUTE): the asleep coordinator $HID could not be read off disk (${NOREAD:-no usable answer from peer-state.py})."
              echo "  Without that read the takeover fails closed. Nothing changed."
              exit 1 ;;
         esac
         BF_NAME="$(side '.title // empty')"; [ -n "$BF_NAME" ] || BF_NAME="${HID:0:8}"
-        echo "MORNING TAKEOVER (standing word: $OKBY): the coordinator \"$BF_NAME\" is asleep in T3 thread $OLD_THREAD and"
-        echo "  has not moved in $IDLE (threshold ${STALE_MIN} min). Taking the seat; the holder is NOT messaged."
+        if [ -z "$REVIVE" ]; then echo "MORNING TAKEOVER (standing word: $OKBY): the coordinator \"$BF_NAME\" is asleep in T3 thread $OLD_THREAD and"
+        else echo "DAYTIME TAKEOVER (--revive, standing word: $OKBY): the coordinator \"$BF_NAME\" (session $HID) is asleep in T3 thread $OLD_THREAD and"; fi
+        echo "  has not moved in $IDLE ($([ "$CLOSED" = yes ] && echo "its wrap closed its session" || echo "threshold ${STALE_MIN} min")). Taking the seat; the holder is NOT messaged."
         echo "  log      : $(log_state)"
         echo "  last line: $LAST"
         # The sidecar goes (its reportUrl must ring nobody's thread any more); who it named stays on
@@ -376,7 +386,7 @@ case "${1:-status}" in
         PREV_NOTE=$(jq -c --arg by "$MY_ID" '{sessionId, threadId, title, reportTaskId, by: $by}' "$SIDE" 2>/dev/null)
         DROP_SIDE=morning
         if [ "$LOGOK" != true ] && [ "$CLOSED" != yes ]; then
-          BACKFILL=1; BF_WHY="coordinator asleep at the morning takeover"; BF_ON="the morning takeover (standing word: $OKBY)"; BF_MIN_VAR=STALE_MIN
+          BACKFILL=1; BF_WHY="coordinator asleep at the $WHEN takeover"; BF_ON="the $WHEN takeover (standing word: $OKBY)"; BF_MIN_VAR=STALE_MIN
         fi
       else
         DROP_SIDE=override
@@ -388,7 +398,7 @@ case "${1:-status}" in
       case "$W" in yes|no)
         if [ "$LOGOK" != true ] && [ "$CLOSED" != yes ]; then
           BF_NAME="${HID:0:8}"; check_min STALE_MIN MM_STALE_SEAT_MIN
-          BACKFILL=1; BF_WHY="coordinator gone at the morning takeover"; BF_ON="the morning takeover (standing word: $OKBY)"; BF_MIN_VAR=STALE_MIN
+          BACKFILL=1; BF_WHY="coordinator gone at the $WHEN takeover"; BF_ON="the $WHEN takeover (standing word: $OKBY)"; BF_MIN_VAR=STALE_MIN
         fi ;;
       esac
     fi
@@ -487,7 +497,7 @@ case "${1:-status}" in
       rm -f "$SIDE"
       if [ "$DROP_SIDE" = morning ]; then
         echo "SETTLE the predecessor: delete_scheduled_task $OLD_TASK (its report task, bound to thread $OLD_THREAD),"
-        echo "  then settle that thread (morning-ritual step 3). Never t3_thread_send it: that re-pays its whole context."
+        echo "  then settle that thread$([ -z "$REVIVE" ] && echo " (morning-ritual step 3)"). Never t3_thread_send it: that re-pays its whole context."
       else
         echo "OVERRIDE (--t3-asleep-ok): the sidecar of the asleep coordinator is deleted. Delete its old report"
         echo "  task too: delete_scheduled_task $OLD_TASK (bound to thread $OLD_THREAD)."
@@ -513,7 +523,7 @@ case "${1:-status}" in
     # the default scope that is <config dir>/state/morning-ritual/window, as without scopes.
     WIN="$(cat "$(dirname "$MARKER")/morning-ritual/window" 2>/dev/null)"; case "$WIN" in ''|*[!0-9]*) WIN=0 ;; esac
     MIDNIGHT=$(( $(date +%s) - 10#$(date +%H) * 3600 - 10#$(date +%M) * 60 - 10#$(date +%S) ))
-    if [ "$WIN" -lt "$MIDNIGHT" ]; then
+    if [ "$WIN" -lt "$MIDNIGHT" ] && [ -z "$REVIVE" ]; then   # --revive: no ritual, the answers first
       echo "No morning ritual was delivered today — run middle-management:morning-ritual now (step 6, your user's to-do list, at least)."
     fi
     # 0.18.0, default since 0.19.0 (README, configuration list): the rule for the coordinator's
@@ -641,5 +651,5 @@ case "${1:-status}" in
       || { echo "FAILED: could not write $SIDE."; exit 1; }
     echo "OK: handover to \"$F_TO_TITLE\" ($F_TO_THREAD) recorded. You keep the seat and the report task until it claims."
     ;;
-  *) echo "Usage: orchestrator.sh [claim [--thread <id>] [--t3-asleep-ok|--morning]|release [<sessionId of the not visibly alive holder>] [--t3-asleep-ok]|status|t3-bind --thread <id> --title <t> --task <taskId> --model <m>|t3-handover --to-thread <id> --to-title <t>]"; exit 1 ;;
+  *) echo "Usage: orchestrator.sh [claim [--thread <id>] [--t3-asleep-ok|--morning|--revive]|release [<sessionId of the not visibly alive holder>] [--t3-asleep-ok]|status|t3-bind --thread <id> --title <t> --task <taskId> --model <m>|t3-handover --to-thread <id> --to-title <t>]"; exit 1 ;;
 esac
