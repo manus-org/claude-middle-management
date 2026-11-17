@@ -46,7 +46,8 @@ and with config quietReports.enabled the inbox tick of t3-inbox.py for every sco
 reports": the fallback wake, a debounced wake whose window has passed, the 24-h drop; no wake while
 the morning claim is pending), also when the T3 API is down: it needs only the inbox and the webhook.
 It runs after the scope checks, so while <cfg>/state/t3-watch/<scope>.json names the coordinator in
-limit.runs t3-inbox.py holds the digest, and the tick that ends the episode sends it.
+limit.runs (and the reset time in limit.resets has not passed) t3-inbox.py holds the digest; the
+tick that ends the episode, or the first one past the reset time, sends it.
 A T3 API problem (HTTP 400 / missing keys, token rejected, server down twice in a row) -> one
 notify per kind and day, never a crash. Secrets: the token (config t3TokenFile, default
 ~/.config/t3-threads/token, refused when group/other can read it) only goes into a request header;
@@ -427,7 +428,7 @@ def check_scope(name, sdir, side, shell, ss):
         # read by t3-inbox.py: past a thread's reset time its held digest goes out without waiting
         # for the next Keepalive to end the episode
         ep["resets"] = {i: t.get("usageLimitResetAt") for i, t in limited.items() if t.get("usageLimitResetAt")}
-        new =[t for i, t in sorted(limited.items()) if i not in ep["notified"]]
+        new = [t for i, t in sorted(limited.items()) if i not in ep["notified"]]
         if new:
             def until(t):
                 u = iso_when(t.get("usageLimitResetAt"))

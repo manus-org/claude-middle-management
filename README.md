@@ -534,14 +534,14 @@ changes the worker side of the Stop hook; everything else stays as above.
 - **Usage limit.** While the watcher's state file `<config-dir>/state/t3-watch/<scope>.json` names
   the coordinator's thread in its usage-limit episode (`limit.runs`), no digest wake goes out, also
   not for an asleep coordinator or past `fallbackMin`: a run in a limited thread fails at once.
-  Every item waits in the inbox. Usually the 30-min `Keepalive` retry is the first run that gets
-  through after the reset, and the coordinator's own Stop hook hands the waiting items in at its
-  end. Otherwise the inbox tick sends ONE digest with what waited (the usual rules: at least one
-  important item; status items alone reach the coordinator inside its next turn, as always): in the
-  tick that ends the episode (it runs after the thread check) or, at the latest, in the first tick
-  past the coordinator's reset time (`limit.resets`, T3's `usageLimitResetAt`). Fail open: a
-  missing or unreadable file, or one the watcher has not checked for 30 min (its `checked` stamp;
-  T3 API down, watcher stopped), wakes as before. Not held: the `Keepalive` itself (it is the
+  Every item waits in the inbox. After the reset the inbox tick sends ONE digest with what waited
+  (the usual rules: at least one important item; status items alone reach the coordinator inside
+  its next turn, as always): in the tick that ends the episode (it runs after the thread check) or,
+  at the latest, in the first tick past the coordinator's reset time (`limit.resets`, T3's
+  `usageLimitResetAt`). When the 30-min `Keepalive` retry gets through first, the coordinator's own
+  Stop hook hands the items in at its end. Fail open: a missing or unreadable file, or one the
+  watcher has not checked for 30 min (its `checked` stamp; T3 API down, watcher stopped), wakes as
+  before. Not held: the `Keepalive` itself (it is the
   retry), the takeover notice, the watcher's other wakes, every report with `quietReports` off
   (there is no inbox to hold it in), and a report the inbox cannot take (it goes out directly).
 - **Inside the turn.** `hooks/t3-inbox.sh` (PostToolUse on every tool, UserPromptSubmit) hands
