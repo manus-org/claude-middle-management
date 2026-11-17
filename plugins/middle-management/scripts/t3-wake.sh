@@ -92,10 +92,16 @@ else
 fi
 # A digest (t3-inbox.py) already names every report's sender and thread, so it is sent unwrapped too.
 [ -n "$DIGEST" ] && SRC=(--rawfile r "$ARG" --argjson ka true)
-BODY=$(jq -cn --arg from "$FROM" --arg session "$SID" --arg thread "$THREAD" "${SRC[@]}" \
+# A worker's report (the sender is a session) gets the line for the coordinator under its head; a
+# caller that is no session (MM_SESSION_ID="": the watcher, your user's channel poller) does not.
+# The same text as FOR_COORDINATOR in t3-inbox.py.
+FOR_COORDINATOR="For the coordinator, not for your user: take these reports in and book them. Write to your user only what matters to them: nothing if nothing does, one short line if something is new. You do not need to repeat an earlier answer here."
+[ -n "$SID" ] || FOR_COORDINATOR=""
+BODY=$(jq -cn --arg from "$FROM" --arg session "$SID" --arg thread "$THREAD" --arg fc "$FOR_COORDINATOR" "${SRC[@]}" \
   '{from: $from, session: $session, thread: $thread, report: ($r | rtrimstr("\n"))[:4000]}
    # prompt = what the report task templates ({{body.prompt}}): Keepalive is never wrapped (rule 1.4b).
    | .prompt = (if $ka then .report
+                elif $fc != "" then "Report from \(.from) (thread \(.thread)):\n\($fc)\n\(.report)"
                 else "Report from \(.from) (thread \(.thread)): \(.report)" end)') \
   || fail "could not build the JSON body"
 

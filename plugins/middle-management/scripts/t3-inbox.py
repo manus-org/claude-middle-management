@@ -49,11 +49,17 @@ TICK = os.path.join(STATE, "t3-inbox.tick")
 NOW = float(os.environ.get("T3W_NOW") or time.time())
 CAP_ITEM, CAP_WAKE, CAP_INJECT = 4000, 4000, 8000
 WAKING_S, CLAIM_S, TTL_S, TICK_STALE_S = 120, 300, 24 * 3600, 30 * 60
-HEAD_WAKE = "Worker reports (quiet), %d waiting, oldest first:"
+# Directly under every head that hands worker reports to the coordinator. t3-wake.sh's single report
+# carries the same text (FOR_COORDINATOR there); tests/t3-inbox.sh and tests/t3-watch.sh pin both.
+FOR_COORDINATOR = ("For the coordinator, not for your user: take these reports in and book them. Write to your user "
+                   "only what matters to them: nothing if nothing does, one short line if something is new. You do "
+                   "not need to repeat an earlier answer here.")
+HEAD_WAKE = "Worker reports (quiet), %d waiting, oldest first:\n" + FOR_COORDINATOR
 TAIL_WAKE = "(%d more arrive as hook context in this turn)"
-HEAD_INJECT = ("Worker reports (quiet): %d arrived without a turn of their own, oldest first. Handle them in "
-               "the turn you are in; do not answer each one with a chat message of its own. If your user started this "
-               "turn, its last text is the full answer to them again, the new point added, never a one-line addendum.")
+HEAD_INJECT = ("Worker reports (quiet): %d arrived without a turn of their own, oldest first.\n" + FOR_COORDINATOR +
+               "\nHandle them in the turn you are in; do not answer each one with a chat message of its own. Only if "
+               "your user started this turn: its last text is the full answer to them again, the new point added, "
+               "never a one-line addendum.")
 TAIL_INJECT = "(%d more follow with your next tool call or turn)"
 
 

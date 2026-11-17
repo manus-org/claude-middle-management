@@ -72,7 +72,8 @@ coordinator's thread (README, "T3 Code"). A script cannot call MCP tools, so you
    `orchestrator.sh claim --thread <currentThreadId>`. A successor the holder named with
    `t3-handover` takes the seat this way even while the holder is alive.
 2. **Report task:** `schedule_task` with `type: webhook`, bound to this thread, prompt exactly
-   `{{body.prompt}}` (t3-wake.sh puts "Report from <from> (thread <id>): <text>" there, and a bare
+   `{{body.prompt}}` (t3-wake.sh puts "Report from <from> (thread <id>): <text>" there, a worker's
+   report with the line "For the coordinator, not for your user: ..." under that head, and a bare
    `Keepalive`, never wrapped).
 3. **Bind:** `orchestrator.sh t3-bind --thread <id> --title <title> --task <taskId> --model <model>`,
    with the task's URL on **stdin** (never in argv, never printed, never in a reply). It writes the

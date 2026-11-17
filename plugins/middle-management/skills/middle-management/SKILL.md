@@ -434,18 +434,23 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   its thread, `t3-bind`s it and deletes the old one with `delete_scheduled_task` (a re-save keeps
   the old model).
 - **Worker -> coordinator:** the last text of each worker turn, delivered by the Stop hook. Tools
-  first, report last. "report NOT delivered" -> send it yourself with `t3_thread_send <coordinator thread>`.
+  first, report last. Its first line says what in it matters to your user: `For your user: <one line>`
+  or `For your user: nothing`. "report NOT delivered" -> send it yourself with `t3_thread_send <coordinator thread>`.
   With `quietReports` on (README, "Quiet reports") only a READY / LIVE / blocked / question report
   wakes the coordinator, as one digest; everything else reaches it inside its own turn as "Worker
   reports (quiet)": the coordinator handles those in the turn it is in, never a chat reply per report.
+  Every worker report arrives with the line "For the coordinator, not for your user: ..." under its
+  head (single report, digest and "Worker reports (quiet)"); a message from a sender that is no
+  session (the watcher, your user's channel poller) and a bare `Keepalive` arrive without it.
   A worker outside T3 Code whose coordinator sits in a T3 thread reports with
   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/t3-wake.sh" "<its name>" <file with the report>` (exit 0 =
   delivered); a peer message is not the report channel to a T3 thread.
 - **Coordinator -> your user:** your user sees only the last text of a turn they started; text
   before a later tool call is folded away. Bookkeeping first, answer last. When reports arrive
-  after the answer (the Stop hook hands them in), the turn's last text is the full answer again,
-  the new point added, never a one-line addendum. What arises in a turn a worker report or a wake
-  started is restated in your user's next turn.
+  after the answer in a turn your user started (the Stop hook hands them in), the turn's last text
+  is the full answer again, the new point added, never a one-line addendum. In a turn a worker
+  report or a wake started, write only what matters to your user (nothing if nothing does, one
+  short line if something is new), never an earlier answer again; restate that in their next turn.
 - **Coordinator -> worker:** tasking, questions and handover by `t3_thread_send <threadId>`
   (it wakes a sleeping or settled thread). No `t3_thread_wait` afterwards: the answer arrives by
   itself. No poke, no keep-warm, no peer message into a T3 thread.
