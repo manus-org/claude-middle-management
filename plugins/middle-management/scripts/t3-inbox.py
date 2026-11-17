@@ -6,8 +6,8 @@ Consumers: hooks/t3-report.sh (`deliver` at a worker's turn end, `inject` at the
   (imports tick(), copy set middle-management-t3watch), tests/t3-inbox.sh, tests/t3-watch.sh.
   Calls t3-wake.sh beside it (the one sender: --digest, --thread); imports scope.py and
   peer-state.py beside it. Writes <marker dir>/t3-inbox/, <cfg>/state/t3-inbox.tick and the lines of
-  <cfg>/state/t3-report/{inbox.log,failures.log}. Reads only sessionId from the sidecar, never its
-  reportUrl.
+  <cfg>/state/t3-report/{inbox.log,failures.log}. Reads only sessionId and threadId from the
+  sidecar, never its reportUrl.
 
 Usage: t3-inbox.py deliver <marker dir> <important|status> <from> <file with the report>
          env MM_SESSION_ID = the worker's session, MM_SCOPE_CWD (handed on to t3-wake.sh)
