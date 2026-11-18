@@ -541,9 +541,9 @@ changes the worker side of the Stop hook; everything else stays as above.
   `usageLimitResetAt`). When the 30-min `Keepalive` retry gets through first, the coordinator's own
   Stop hook hands the items in at its end. Fail open: a missing or unreadable file, or one the
   watcher has not checked for 30 min (its `checked` stamp; T3 API down, watcher stopped), wakes as
-  before. Not held: the `Keepalive` itself (it is the
-  retry), the takeover notice, the watcher's other wakes, every report with `quietReports` off
-  (there is no inbox to hold it in), and a report the inbox cannot take (it goes out directly).
+  before. Not held: the `Keepalive` itself (it is the retry), the takeover notice, the watcher's
+  other wakes, every report with `quietReports` off (there is no inbox to hold it in), and a report
+  the inbox cannot take (it goes out directly).
 - **Inside the turn.** `hooks/t3-inbox.sh` (PostToolUse on every tool, UserPromptSubmit) hands
   waiting items to the coordinator as `additionalContext` headed "Worker reports (quiet)", at most
   8000 chars per call, and the coordinator's own Stop hook hands in what still waits with one block
@@ -561,10 +561,11 @@ changes the worker side of the Stop hook; everything else stays as above.
   the other items stay, and the watcher's retries write one line per failure episode. An item
   older than 24 h is dropped with an `inbox.log` line and a `failures.log` line (the watcher tells
   your user: a weekly usage limit can outlast it); one the coordinator itself sent before it held
-  the seat is dropped too, with an `inbox.log` line only. An important report that lands while the coordinator's turn is ending
-  (after its Stop hook, before it reads as idle, about 0.1 s) waits for the next watcher tick,
-  then for the debounce window: late, not lost. If the inbox cannot be written, the report goes out
-  as before, one wrapped turn, also a status report (never lost beats quiet).
+  the seat is dropped too, with an `inbox.log` line only. An important report that lands while the
+  coordinator's turn is ending (after its Stop hook, before it reads as idle, about 0.1 s) waits
+  for the next watcher tick, then for the debounce window: late, not lost. If the inbox cannot be
+  written, the report goes out as before, one wrapped turn, also a status report (never lost beats
+  quiet).
 - **Not covered.** A report sent by hand with `t3-wake.sh` (a session outside T3, pathfinder's push,
   an inbound phone poller, the watcher's own wakes) keeps its own turn. The flag is machine-wide, for every scope.
 - **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the
