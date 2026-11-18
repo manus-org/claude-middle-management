@@ -39,7 +39,8 @@
 #   today (a coordinator claimed it), or when the trigger cancelled itself today (it already said
 #   why), or when it is still waiting (its pid is alive). Otherwise cause file + exit 1 -> the alarm.
 #
-# Env (optional): MM_MORNING_UNIT (this unit's name, for the cause file; unset = a manual run, no
+# Env (optional): T3W_NOW (epoch for the status stamp; t3-watch.py's test seam, handed on by its tick),
+#   MM_MORNING_UNIT (this unit's name, for the cause file; unset = a manual run, no
 #   cause file), MM_MORNING_WAIT_UNTIL (HH:MM, wins over the config key: a late manual run),
 #   MM_MORNING_RETRY_SEC (600), MM_MORNING_PROBE_SEC (60), MM_MORNING_MODEL (the probe's model).
 # The webhook URL is a capability into a full-access thread: it never reaches argv, stdout, stderr,
@@ -103,7 +104,7 @@ STATE="$SDIR/$KIND-t3"
 STATUS="$STATE/status"
 mkdir -p "$STATE" || fail "it cannot create its state folder" "Check the folder's permissions, then start it again:" "$RERUN" "cannot create $STATE"
 # One line: date, state, epoch, pid. Read by t3-watch.py and --check; never carries the URL.
-setstatus() { printf '%s\t%s\t%s\t%s\n' "$TODAY" "$1" "$(date +%s)" "$$" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }
+setstatus() { printf '%s\t%s\t%s\t%s\n' "$TODAY" "$1" "${T3W_NOW:-$(date +%s)}" "$$" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }
 midnight() { echo $(( $(date +%s) - 10#$(date +%H) * 3600 - 10#$(date +%M) * 60 - 10#$(date +%S) )); }
 
 # --------------------------------------------------------------------------------- watchdog --
