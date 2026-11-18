@@ -30,7 +30,9 @@ due within `MM_STALE_SEAT_MIN` plus an hour), one start per seat episode (kept u
 day; a failed start, a refused claim or no claim within 30 min is one red notice and no
 retry until the seat changes hands. The thread claims with `orchestrator.sh claim --revive` (the
 `--morning` route with its own word `reviveTakeover` and status file, no morning-ritual line; a
-holder whose wrap closed its session needs no quiet hour). Setup: item 16c and step 8b (the
+holder whose wrap closed its session needs no quiet hour). `hooks/t3-report.sh` holds its turns
+like the morning thread's: none goes into the old coordinator before the claim, none from a refused
+takeover thread for 24 h. Setup: item 16c and step 8b (the
 "Takeover coordinator" webhook task and its exact prompt). `config-check.sh` validates
 `reviveTakeover` and `reviveTaskUrlFile`; the watcher's copy set now carries `morning-t3.sh` (it
 is refreshed at the next session start).

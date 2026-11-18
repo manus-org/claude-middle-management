@@ -637,6 +637,10 @@ coordinator, nobody is woken: the watcher starts one, the way the morning chain 
   quiet hour; it prints no morning-ritual line. The thread's prompt (setup step 8b): claim, report
   task, `t3-bind`, settle the predecessor, read the board and the predecessor, `open-items.py list`,
   then work what waits (it arrives as hook context after `t3-bind`), and stop. No morning ritual.
+  The Stop hook holds it like the morning thread (step 4 there, off `revive-t3/status`): no turn
+  of a session started after the post goes into the old coordinator before the claim (at most 30
+  min; its `failures.log` line reaches you), and the refused takeover thread itself stays held for
+  24 h from the refusal, so it never wakes the old one.
 - **Loud, never a loop.** A failed start, a refused claim, or no claim within 30 min of the post:
   one red notice with the command to try again, no new start until the seat changes hands.
 - **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the

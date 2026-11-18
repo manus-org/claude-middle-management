@@ -10,7 +10,8 @@
 #      cancelled, seat changed hands during the wait -> cancelled
 #   B  watchdog: missing claim / ritual -> alarm, both today -> quiet, cancelled / waiting -> quiet
 #   C  unit-failure-alarm: notifyFallbackCommand when notifyCommand fails or is missing
-#   D  t3-report.sh: the morning thread's turn is not sent to the night coordinator before its claim
+#   D  t3-report.sh: the morning thread's turn is not sent to the night coordinator before its claim,
+#      nor the daytime takeover thread's to the old one (revive-t3/status), nor a refused one's
 #   E  templates   F  config shape   G  --revive: own word and URL file, one probe and no wait (limited ->
 #      status limited, exit 0, no POST), failures   Z  no webhook secret in any output
 set -uo pipefail
@@ -255,6 +256,22 @@ stop sess-w2; has "claimed (not bound yet) -> no hold" "REFUSED: something" "$(c
 printf '%s\tposted\t%s\t1\n' "$(date +%F)" "$((NOWS - 2400))" > "$CD/state/morning-t3/status"; rm -f "$CD/state/t3-report/sess-w2"
 printf '{"pid":3,"sessionId":"sess-w2","kind":"interactive","cwd":"/x","name":"late worker","startedAt":%s}\n' "$(( (NOWS - 2300) * 1000))" > "$CD/sessions/3.json"
 stop sess-w2; has "posted 40 min ago, no thread ever claimed -> the hold has ended" "REFUSED: something" "$(cat "$TMP/hook.log" 2>/dev/null)"
+# the daytime takeover thread (revive-t3/status, README "A fresh coordinator by day"): the same two holds
+told() { rm -f "$TMP/hook.log"; jq -n --arg s "$1" '{session_id:$s, last_assistant_message:"REFUSED: something"}' \
+  | HOME="$H" CLAUDE_CONFIG_DIR="" T3CODE_HOME="$H/.t3" CLAUDE_PLUGIN_ROOT="$P" T3CODE_PORT=1 bash "$P/hooks/t3-report.sh" 2>&1; }
+rm -f "$CD/state/morning-t3/status" "$CD/state/t3-report/"sess-* "$CD/state/t3-report/failures.log"; mkdir -p "$CD/state/revive-t3"
+printf '%s\tposted\t%s\t1\n' "$(date +%F)" "$((NOWS - 30))" > "$CD/state/revive-t3/status"
+OUT=$(told sess-m); [ -e "$TMP/hook.log" ] && bad "revive: the takeover thread before its claim -> nothing sent" none "$(cat "$TMP/hook.log")" || ok "revive: the takeover thread before its claim -> nothing sent"
+has "...the session is told" "the takeover thread has not claimed the seat yet (it would wake the old coordinator)" "$OUT"
+has "...one failures.log line, short enough for the watcher to show whole" "held: the takeover thread has not claimed the seat yet (at most 30 min)" "$(cat "$CD/state/t3-report/failures.log" 2>/dev/null)"
+stop sess-w; has "...a worker started before the post still reports" "REFUSED: something" "$(cat "$TMP/hook.log" 2>/dev/null)"
+printf '%s\trefused\t%s\t1\tsess-m\n' "$(date -d yesterday +%F)" "$((NOWS - 600))" > "$CD/state/revive-t3/status"; rm -f "$CD/state/t3-report/"sess-*
+OUT=$(told sess-m); [ -e "$TMP/hook.log" ] && bad "revive: the refused takeover thread stays held, its post from before midnight too" none "$(cat "$TMP/hook.log")" || ok "revive: the refused takeover thread stays held, its post from before midnight too"
+has "...the session is told" "your claim --revive was refused, so your turns are NOT sent to the old coordinator" "$OUT"
+is "...told once, then quiet" "$(told sess-m)" ""
+stop sess-w2; has "...every other session reports" "REFUSED: something" "$(cat "$TMP/hook.log" 2>/dev/null)"
+printf '%s\trefused\t%s\t1\tsess-m\n' "$(date -d yesterday +%F)" "$((NOWS - 90000))" > "$CD/state/revive-t3/status"; rm -f "$CD/state/t3-report/"sess-*
+stop sess-m; has "...a refusal over 24 h old -> the hold has ended" "REFUSED: something" "$(cat "$TMP/hook.log" 2>/dev/null)"
 
 echo "== E: templates =="
 TPL=$P/templates/systemd

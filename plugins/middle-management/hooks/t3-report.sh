@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # middle-management plugin: Stop hook, a session's report into its T3 coordinator (plan 1.3, D0).
 # Consumers: hooks/hooks.json (Stop registration), tests/t3-report.sh, tests/morning-t3.sh (D),
-#   tests/t3-inbox.sh. Reads <seat dir>/morning-t3/status (scripts/morning-t3.sh). Calls
+#   tests/t3-inbox.sh. Reads <seat dir>/{morning-t3,revive-t3}/status (scripts/morning-t3.sh). Calls
 #   scripts/t3-wake.sh (the one sender), with quietReports.enabled scripts/t3-inbox.py instead
 #   (deliver; inject for the coordinator's own Stop), scripts/config-check.sh and, with scopes or
 #   scopeMode per-root, scripts/scope.py.
@@ -9,7 +9,7 @@
 # Every session that is not the CURRENT coordinator (a worker, or a former coordinator after a
 # takeover) sends the last text of each turn to the coordinator of its scope. Nothing happens unless:
 # T3CODE_HOME is set (a T3 Code thread) · the scope has a sidecar <marker dir>/orchestrator.t3.json ·
-# this session is not sidecar.sessionId · it is not today's morning thread before its claim · the text is not empty and not exactly "OK" (the answer to a
+# this session is not sidecar.sessionId · it is not today's morning thread (or the daytime takeover thread) before its claim · the text is not empty and not exactly "OK" (the answer to a
 # Keepalive) · the turn is not an interim one while a sub-agent of this session runs (held, sent with
 # the next turn that sends; see "Interim turn") · the text differs from the last one sent (sha256 in
 # <cfg>/state/t3-report/<sessionId>).
@@ -67,15 +67,28 @@ fi
 # After a refused claim (status "refused", 5th column = the claimer) only the refused morning thread
 # itself stays held for the day: the user already got the REFUSED notice through notifyCommand, so
 # its turns are not lost silently, and they never wake the night coordinator. Everyone else reports.
-MST="$SDIR/morning-t3/status"
-if [ -f "$MST" ]; then
+# The daytime takeover (README "A fresh coordinator by day") is held the same way off
+# <seat dir>/revive-t3/status (morning-t3.sh --revive, claim --revive), so its thread does not wake
+# the old coordinator either; t3-watch.py tells the user of the refusal or of no claim in 30 min. A
+# refused takeover thread stays held 24 h from the refusal, not for the day: its post may predate
+# midnight (the status keeps the post's date), and t3-watch.py reads that outcome for 24 h too.
+for K in morning revive; do
+  MST="$SDIR/$K-t3/status"
+  [ -f "$MST" ] || continue
   IFS=$'\t' read -r MD MS MAT _ MBY _ < "$MST"
   case "$MAT" in ''|*[!0-9]*) MAT="" ;; esac
-  if [ "$MD" = "$(date +%F)" ] && [ "$MS" = refused ] && [ -n "${MBY:-}" ] && [ "$MBY" = "$SID" ]; then
+  # the words; the revive reason fits t3-watch.py's 80-char cut, the morning one has its own why() line
+  case "$K" in
+    morning) OLD="night coordinator"; WHO="morning thread"; TOLD="your user got the REFUSED notice"; RNOW=$([ "$MD" = "$(date +%F)" ] && echo 1)
+             HWHY="held: the morning thread has not claimed the seat yet, so its turns are not sent to the night coordinator until it claims (at most 30 min); read them in that session" ;;
+    revive)  OLD="old coordinator"; WHO="takeover thread"; TOLD="the watcher tells your user"; RNOW=$([ -n "$MAT" ] && [ $(( $(date +%s) - MAT )) -lt 86400 ] && echo 1)
+             HWHY="held: the takeover thread has not claimed the seat yet (at most 30 min)" ;;
+  esac
+  if [ -n "$RNOW" ] && [ "$MS" = refused ] && [ -n "${MBY:-}" ] && [ "$MBY" = "$SID" ]; then
     RDIR="$CFG_DIR/state/t3-report"; mkdir -p "$RDIR" 2>/dev/null
     [ "$(cat "$RDIR/$SID.held" 2>/dev/null)" = "refused $MD" ] && exit 0
     printf 'refused %s\n' "$MD" > "$RDIR/$SID.held" 2>/dev/null
-    echo '{"systemMessage":"middle-management: your claim --morning was refused, so your turns are NOT sent to the night coordinator (your user got the REFUSED notice). Wait for your user in this thread."}'
+    printf '{"systemMessage":"middle-management: your claim --%s was refused, so your turns are NOT sent to the %s (%s). Wait for your user in this thread."}\n' "$K" "$OLD" "$TOLD"
     exit 0
   fi
   if [ -n "$MAT" ] && [ "$MD" = "$(date +%F)" ] && [ "$MS" = posted ] && [ $(( $(date +%s) - MAT )) -lt 1800 ] \
@@ -88,13 +101,12 @@ if [ -f "$MST" ]; then
       [ "$(cat "$RDIR/$SID.held" 2>/dev/null)" = "$MAT" ] && exit 0
       printf '%s\n' "$MAT" > "$RDIR/$SID.held" 2>/dev/null
       HFROM=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null | jq -r --arg id "$SID" 'select(.sessionId == $id) | .name | strings' 2>/dev/null | head -1)
-      printf '%s\t%s\t%s\tunknown\theld: the morning thread has not claimed the seat yet, so its turns are not sent to the night coordinator until it claims (at most 30 min); read them in that session\n' \
-        "$(date -Is)" "${HFROM:-an unnamed session}" "$SID" >> "$RDIR/failures.log" 2>/dev/null
-      echo '{"systemMessage":"middle-management: this turn was NOT sent to the coordinator: the morning thread has not claimed the seat yet (it would wake the night coordinator). Your user is told through the watcher; claim first if you are the morning thread."}'
+      printf '%s\t%s\t%s\tunknown\t%s\n' "$(date -Is)" "${HFROM:-an unnamed session}" "$SID" "$HWHY" >> "$RDIR/failures.log" 2>/dev/null
+      printf '{"systemMessage":"middle-management: this turn was NOT sent to the coordinator: the %s has not claimed the seat yet (it would wake the %s). Your user is told through the watcher; claim first if you are the %s."}\n' "$WHO" "$OLD" "$WHO"
       exit 0
     fi
   fi
-fi
+done
 
 TEXT=$(jq -r '.last_assistant_message // empty | strings' <<<"$IN")
 if [ -z "$TEXT" ]; then   # fallback: the text blocks of the last assistant entry in the transcript

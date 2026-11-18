@@ -8,7 +8,7 @@
 #   The marker it writes is read by hooks/session-role.sh and scripts/morning-t3.sh (--check: claimed
 #   today?); the wrap entry it backfills on an expired seat or a morning / daytime takeover (claim
 #   --morning, claim --revive) is read by scripts/peer-state.py. claim --revive writes
-#   <seat dir>/revive-t3/status, read by scripts/t3-watch.py and scripts/t3-inbox.py. orchestrator.t3.previous.json (morning takeover) is read by t3-bind
+#   <seat dir>/revive-t3/status, read by scripts/t3-watch.py, scripts/t3-inbox.py and hooks/t3-report.sh. orchestrator.t3.previous.json (morning takeover) is read by t3-bind
 #   and status here only.
 #   Calls scripts/peer-state.py (stale-seat check on claim, holder line on status) and, only
 #   when the config has a "scopes" key or "scopeMode": "per-root", scripts/scope.py (which seat this
