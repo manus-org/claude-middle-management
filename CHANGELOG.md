@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.19.3 - 2026-11-17
+
+**No wake into a usage-limited coordinator.** With `quietReports` on, worker reports no longer wake
+a coordinator whose thread is in a usage-limit episode: each wake started a run that failed at
+once. `scripts/t3-inbox.py` reads the watcher's state file `<config-dir>/state/t3-watch/<scope>.json`
+and holds the digest while `limit.runs` names the sidecar's thread; the items wait in the inbox.
+After the reset the inbox tick sends one digest with what waited: the watcher's tick runs after
+its thread check, so the tick that ends the episode sends it, at the latest the first tick past the
+coordinator's reset time (new field `limit.resets`, T3's `usageLimitResetAt`); when the `Keepalive`
+retry gets through first, its Stop hook hands them in. Fail open: a missing or unreadable file, or
+one the watcher has not checked for 30 min (new field `checked`, written by `scripts/t3-watch.py`
+on every check), wakes as before. The `Keepalive` retry, the takeover notice, the watcher's other
+wakes and reports with `quietReports` off are not held. An inbox item dropped after 24 h now also
+writes a `failures.log` line, so the watcher tells your user (a weekly limit can outlast the 24 h).
+
 ## 0.19.2 - 2026-11-17
 
 **Worker reports say what matters to your user.** Every head that hands worker reports to a T3

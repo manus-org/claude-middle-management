@@ -440,6 +440,9 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   With `quietReports` on (README, "Quiet reports") only a READY / LIVE / blocked / question report
   wakes the coordinator, as one digest; everything else reaches it inside its own turn as "Worker
   reports (quiet)": the coordinator handles those in the turn it is in, never a chat reply per report.
+  While the coordinator is usage-limited no digest wakes it: the reports wait in the inbox and
+  arrive as one digest after the reset (or inside the `Keepalive` turn, when that gets through
+  first).
   Every worker report arrives with the line "For the coordinator, not for your user: ..." under its
   head (single report, digest and "Worker reports (quiet)"); a message from a sender that is no
   session (the watcher, your user's channel poller), a bare `Keepalive` and the takeover wake "seat
