@@ -8,8 +8,8 @@
 #
 # Every session that is not the CURRENT coordinator (a worker, or a former coordinator after a
 # takeover) sends the last text of a turn to the coordinator of its scope when that text is a report
-# (README "What a report is"): a line starts with "For your user:" (markdown prefixes allowed, any
-# case) or the text carries an always-send token (ALWAYS below, case-sensitive). Any other turn is not
+# (README "What a report is"): a line starts with "For your user:" and says more than "nothing"
+# (markdown prefixes allowed, any case) or the text carries an always-send token (ALWAYS below, case-sensitive). Any other turn is not
 # sent: the worker decides. Nothing happens unless: T3CODE_HOME is set (a T3 Code thread) · the scope
 # has a sidecar <marker dir>/orchestrator.t3.json · this session is not sidecar.sessionId · it is not
 # today's morning thread before its claim · the text is a report, not empty and not exactly "OK" (the
@@ -22,7 +22,7 @@
 # Quiet reports (README "Quiet reports", config quietReports.enabled): the report goes into the
 # scope's inbox through t3-inbox.py deliver (same exit codes), which wakes the coordinator only when
 # it sleeps or an important report waits; the coordinator's own Stop hands in what still waits.
-# Class "status" only for a report whose marker line says "nothing" and that carries no token.
+# Every report is class "important"; "For your user: nothing" alone is no report.
 set -u
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -120,9 +120,12 @@ FROM=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null \
 # tells workers to write them in CAPITALS.
 REPORT='^[[:space:]>*_#`0-9.-]*For your user:'
 ALWAYS='\b(READY|LIVE|BLOCKED|FERTIG|CRITICAL|SECURITY|BUG|ERROR|PROBLEM|FAILED|FAILING)\b|Question:|Frage:|wartet auf|Close this tab\.|\?[[:space:]]*$'
-LINE=$(grep -iE "$REPORT" <<<"$TEXT")   # every marker line
+# A marker line that says only "nothing" or "nichts" (any case, trailing ".", "**" or "`") is no
+# report: it is the habit line of a turn that matters to nobody. One marker line with news sends.
+NEWS=$(grep -iE "$REPORT" <<<"$TEXT" | sed -E 's/^[[:space:]>*_#`0-9.-]*for your user:[[:space:]*_`]*//I; s/[[:space:]*_.`]*$//' \
+  | grep -viE '^(nothing|nichts)$')
 TOKEN=$(grep -qE "$ALWAYS" <<<"$TEXT" && echo 1)
-[ -n "$TEXT" ] && [ -n "$LINE$TOKEN" ] || exit 0   # not a report: nothing sent, nothing logged
+[ -n "$TEXT" ] && [ -n "$NEWS$TOKEN" ] || exit 0   # not a report: nothing sent, nothing logged
 
 TMP=$(umask 077; mktemp) || exit 0
 printf '%s' "$TEXT" > "$TMP"
@@ -131,12 +134,8 @@ printf '%s' "$TEXT" > "$TMP"
 GUARD=(); command -v timeout >/dev/null 2>&1 && GUARD=(timeout "${T3_REPORT_BUDGET:-15}")
 SEND=(bash "$S/t3-wake.sh")
 if jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1; then
-  # "status" (never wakes) only when no token and EVERY marker line says "nothing" or "nichts" (any case,
-  # trailing ".", "**" or "`"); one marker line with news makes it important.
-  CLASS=important
-  [ -z "$TOKEN" ] && ! sed -E 's/^[[:space:]>*_#`0-9.-]*for your user:[[:space:]*_`]*//I; s/[[:space:]*_.`]*$//' <<<"$LINE" \
-    | grep -qviE '^(nothing|nichts)$' && CLASS=status
-  SEND=(python3 "$S/t3-inbox.py" deliver "$SDIR" "$CLASS")
+  # Every text that gets here is a report the worker chose to send: class important (may wake).
+  SEND=(python3 "$S/t3-inbox.py" deliver "$SDIR" important)
 fi
 MM_SESSION_ID="$SID" MM_SCOPE_CWD="$START" "${GUARD[@]}" "${SEND[@]}" "${FROM:-an unnamed session}" "$TMP" >/dev/null 2>&1; RC=$?
 rm -f "$TMP"

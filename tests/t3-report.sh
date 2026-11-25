@@ -84,7 +84,7 @@ is "an interim turn while a sub-agent runs -> not sent" "$(calls)" "$N"
 [ -e "$R/sess-s.pending" ] && bad "no .pending any more" "no file" "file" || ok "...and no .pending"
 hook "$(inp sess-s "For your user: PR #12 is up for review.")" >/dev/null
 is "marker line -> sent" "$(calls)" $((N+1)); is "...the whole text" "$(last)" "For your user: PR #12 is up for review."
-hook "$(inp sess-s "$(printf 'Done with package 3.\n\n**For your user:** nothing')")" >/dev/null
+hook "$(inp sess-s "$(printf 'Done with package 3.\n\n**For your user:** the PR is up')")" >/dev/null
 is "marker on a later line, markdown bold -> sent" "$(calls)" $((N+2))
 hook "$(inp sess-s "> for your user: quoted, lower case")" >/dev/null
 is "marker after '> ', any case -> sent" "$(calls)" $((N+3))
@@ -115,13 +115,14 @@ echo "== quiet class =="
 printf '{"quietReports":{"enabled":true}}\n' > "$CFG/middle-management.json"; QN=0
 qcls() { QN=$((QN+1)); hook "$(inp sess-s "$1
 ($QN)")" >/dev/null; tail -1 "$TMP/inbox.log" 2>/dev/null; }
-is "For your user: nothing -> status" "$(qcls "For your user: nothing")" status
-is "**For your user:** Nothing. -> status" "$(qcls "$(printf 'Package 2 done.\n**For your user:** Nothing.')")" status
+qnone() { local B; : >> "$TMP/inbox.log"; B=$(wc -l < "$TMP/inbox.log"); qcls "$1" >/dev/null; [ "$(wc -l < "$TMP/inbox.log")" = "$B" ] && echo silent || echo sent; }
+is "For your user: nothing -> not sent" "$(qnone "For your user: nothing")" silent
+is "**For your user:** Nothing. after a status line -> not sent" "$(qnone "$(printf 'Package 2 done.\n**For your user:** Nothing.')")" silent
+is "For your user: nichts -> not sent" "$(qnone "For your user: Nichts.")" silent
+is "\`For your user: nothing\` in backticks -> not sent" "$(qnone '`For your user: nothing`')" silent
+is "two marker lines, both nothing -> not sent" "$(qnone "$(printf 'For your user: nothing\n- For your user: nothing.')")" silent
 is "For your user: <news> -> important" "$(qcls "For your user: the PR is merged")" important
-is "For your user: nichts -> status (r1 F4)" "$(qcls "For your user: Nichts.")" status
-is "\`For your user: nothing\` in backticks -> status" "$(qcls '`For your user: nothing`')" status
 is "nothing first, news on a later marker line -> important (r1 F3)" "$(qcls "$(printf 'For your user: nothing\nFor your user: the PR is merged')")" important
-is "two marker lines, both nothing -> status" "$(qcls "$(printf 'For your user: nothing\n- For your user: nothing.')")" status
 is "nothing + a token -> important" "$(qcls "$(printf 'For your user: nothing\nTests FAILED twice')")" important
 is "a token without marker -> important" "$(qcls "BLOCKED on the API key")" important
 N=$(wc -l < "$TMP/inbox.log"); hook "$(inp sess-s "just some prose")" >/dev/null

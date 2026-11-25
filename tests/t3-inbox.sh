@@ -297,14 +297,16 @@ printf '{"pid":1,"sessionId":"sess-w","name":"worker-1","cwd":"%s","kind":"inter
 rep() {  # $1 = Stop input JSON
   printf '%s' "$1" | env_ CLAUDE_PLUGIN_ROOT="$P" bash "$P/hooks/t3-report.sh" 2>&1; }
 stop() { jq -cn --arg s "$1" --arg t "$2" --argjson x "${3:-{\}}" '{session_id: $s, cwd: "/tmp", hook_event_name: "Stop", last_assistant_message: $t} + $x'; }
-W2=$'working on step 2\nFor your user: nothing'   # a routine report (0.20.0: unmarked turns are not sent at all)
-OUT=$(rep "$(stop sess-w "$W2")"); is "quiet on: a 'For your user: nothing' report -> no output" "$OUT" ""
-is "...queued, no wake" "$(items)/$(nhook)" "1/0"
-is "...class status, from the registry name" "$(jq -r '[.class, .from, .session] | @tsv' "$IN"/*.json)" "status	worker-1	sess-w"
+rep "$(stop sess-w $'working on step 2\nFor your user: nothing')" >/dev/null
+is "quiet on: 'For your user: nothing' alone -> not queued (0.20.0)" "$(items)" 0
+W2=$'working on step 2\nFor your user: step 2 is merged'   # a routine report (0.20.0: unmarked turns are not sent at all)
+OUT=$(rep "$(stop sess-w "$W2")"); is "quiet on: a marked report -> no output" "$OUT" ""
+is "...queued, busy coordinator: no wake" "$(items)/$(nhook)" "1/0"
+is "...class important, from the registry name" "$(jq -r '[.class, .from, .session] | @tsv' "$IN"/*.json)" "important	worker-1	sess-w"
 [ -s "$ST/t3-report/sess-w" ] && ok "...recorded as sent (no repeat)" || bad "sha recorded" file none
 rep "$(stop sess-w "$W2")" >/dev/null; is "...the same text again -> not queued twice" "$(items)" 1
 rep "$(stop sess-w "READY: lane done")" >/dev/null
-is "a READY turn -> class important (an always-send token)" "$(cat "$IN"/*.json | jq -r .class | sort | tr '\n' ' ')" "important status "
+is "a READY turn -> class important (an always-send token)" "$(cat "$IN"/*.json | jq -r .class | sort | tr '\n' ' ')" "important important "
 is "...busy coordinator -> still no wake" "$(nhook)" 0
 OUT=$(rep "$(stop sid-coord "my answer" '{"stop_hook_active":true}')"); is "the coordinator's Stop on a continuation -> nothing" "$OUT/$(items)" "/2"
 OUT=$(rep "$(stop sid-coord "my answer")")

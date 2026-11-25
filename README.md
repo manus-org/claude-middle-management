@@ -470,7 +470,7 @@ every thread, hooks included).
   A pure retry or liveness ping is the single word `Keepalive`, never wrapped in other text; the
   answer is exactly `OK`.
 - **What a report is.** The worker decides: a turn is sent only when a line starts with `For your
-  user:` (any case; markdown prefixes `**`, `*`, `_`, `>`, `-`, `#` allowed, also a list number `1.`
+  user:` and says more than `nothing` or `nichts` (any case; markdown prefixes `**`, `*`, `_`, `>`, `-`, `#` allowed, also a list number `1.`
   and backticks) or the text carries an always-send token, case-sensitive so prose does not fire:
   `READY`, `LIVE`, `BLOCKED`, `FERTIG`, `CRITICAL`, `SECURITY`, `BUG`, `ERROR`, `PROBLEM`, `FAILED`,
   `FAILING` (whole words), `Question:`, `Frage:`, `wartet auf`, `Close this tab.` or a line ending
@@ -480,7 +480,8 @@ every thread, hooks included).
   its one "held" notice per session (see "Morning coordinator in T3 Code"). The worker banner says
   what to report: READY, LIVE, BLOCKED, a question, the wrap, an ERROR, a BUG, a CRITICAL or
   SECURITY finding (those words in capitals), and every answer to a coordinator's `t3_thread_send`
-  (the coordinator does not `t3_thread_wait`; the answer reaches it only as a report). A turn the
+  (the coordinator does not `t3_thread_wait`; the answer reaches it only as a report, so something
+  only for the coordinator goes on the line: `For your user: nothing new · <point>`). A turn the
   user holds directly with the worker in its thread is answered there without the line, unless the
   coordinator must act. Known limit: a report that should go out but has neither the line nor a
   token is not sent; the banner and the tokens are the two nets, the hook cannot see intent. A
@@ -538,10 +539,9 @@ changes the worker side of the Stop hook; everything else stays as above.
 
 - **The inbox.** After the usual filters (morning hold, `OK`, repeats, not a report) a
   worker's report becomes one item in `<marker dir>/t3-inbox/` (mode 0600, cut at 4000 chars),
-  written by `scripts/t3-inbox.py deliver`. Its class comes from the report itself: **status** only
-  when every `For your user:` line says `nothing` or `nichts` (any case, trailing `.`, `**` or a
-  backtick allowed) and there is no always-send token; every other report is **important** (an
-  always-send token, or any `For your user:` line that names something).
+  written by `scripts/t3-inbox.py deliver`. Every worker report is **important** (since 0.20.0 a
+  turn whose `For your user:` lines all say `nothing` or `nichts` and that carries no token is not
+  sent at all, so the hook no longer writes **status** items).
 - **When the coordinator is woken.** Only for an important item, with ONE digest of every pending
   item that fits into 4000 chars, oldest first (`t3-wake.sh --digest`, sent unwrapped): when it is
   asleep (no live registry entry), when the oldest important item is `fallbackMin` old, when its

@@ -215,7 +215,7 @@ if { [ "$ORCH_SRC" = marker ] && [ "$MY_ID" = "$ORCH_ID" ]; } \
       # the same test as hooks/t3-report.sh and scripts/t3-watch.py: an otherwise invalid config switches it too
       if jq -e '.quietReports.enabled == true' "$CFG_FILE" >/dev/null 2>&1; then
         printf 'themselves (their Stop hook; only turns with a "For your user:" line or a CAPITAL token), quiet mode: a turn\n'
-        printf 'of their own only while you sleep or for an important report (anything but "For your user: nothing"), digested.\n'
+        printf 'of their own only while you sleep or for a report ("For your user: nothing" alone is none), digested.\n'
         printf 'Worker reports may arrive inside your turn as "Worker reports (quiet)"; handle them in the turn you are in,\n'
         printf 'do not open a chat reply per report. Task or ask a worker with t3_thread_send <its thread id>\n'
       else
@@ -306,18 +306,19 @@ else
     if [ -n "${T3CODE_HOME:-}" ]; then
       # The report rule is the one hooks/t3-report.sh enforces (README "What a report is").
       CHAN_F=$(printf 'Your report = the last text of a turn, delivered to the coordinator by the Stop hook ONLY when a line\n'
-      printf 'starts with "For your user: <one line>" or "For your user: nothing" (what in it matters to your user);\n'
-      printf 'without that line nothing is sent, unless the text carries READY, LIVE, BLOCKED, ERROR, BUG, CRITICAL,\n'
+      printf 'starts with "For your user: <one line>" (what in it matters to your user); "For your user: nothing" or no\n'
+      printf 'such line: nothing is sent, unless the text carries READY, LIVE, BLOCKED, ERROR, BUG, CRITICAL,\n'
       printf 'SECURITY or a question. Report READY, LIVE, BLOCKED, a question, your wrap, an ERROR, a BUG, a CRITICAL or\n'
       printf 'SECURITY finding (those words in CAPITALS) and every answer to the coordinator'"'"'s t3_thread_send; never\n'
       printf 'interim status or a harmless result. Your user talking to you in this thread: answer them here, without\n'
-      printf 'the report line unless the coordinator must act. Never SendMessage\n'
+      printf 'the report line unless the coordinator must act. Something only for the coordinator: put it on the line\n'
+      printf '("For your user: nothing new · <point>"). Never SendMessage\n'
       printf 'or poke a T3 coordinator, never message other workers. Tools first, report last: only the final text\n'
       printf 'block of a turn arrives. If the hook says "report NOT delivered", send it yourself with t3_thread_send.\n'
       printf 'Book every READY / LIVE / BLOCKED / question report first (key = lane dir or branch, the first entry creates it):\n'
       printf 'python3 "%s/scripts/topics.py" entry --status <s> [--stage ready|live] [--waits-on "user · <q> · rec: <r>"] "<headline>"\n' "$PLUGIN_ROOT"
       printf 'A message that is exactly "Keepalive": answer exactly "OK" and nothing else.')
-      CHAN_S='Your report = the last text of a turn; the Stop hook sends it only when a line starts with "For your user: <one line>" or "For your user: nothing", or it carries READY, LIVE, BLOCKED, ERROR, BUG, CRITICAL, SECURITY or a question. Report those, your wrap and every answer to the coordinator, never interim status; your user talking to you here gets the answer here, no report line unless the coordinator must act. Never SendMessage or poke a T3 coordinator, never message other workers. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.'
+      CHAN_S='Your report = the last text of a turn; the Stop hook sends it only when a line starts with "For your user: <one line>" ("For your user: nothing" is not sent), or it carries READY, LIVE, BLOCKED, ERROR, BUG, CRITICAL, SECURITY or a question. Report those, your wrap and every answer to the coordinator (something only for it: "For your user: nothing new · <point>"), never interim status; your user talking to you here gets the answer here, no report line unless the coordinator must act. Never SendMessage or poke a T3 coordinator, never message other workers. A message that is exactly "Keepalive": answer exactly "OK" and nothing else.'
     else
       CHAN_F=$(printf 'Peer messages are not the report channel to a T3 thread. Report with: bash "%s/scripts/t3-wake.sh" "%s" <file with the report>\n' "$PLUGIN_ROOT" "${MY_NAME:-worker}"
       printf '(exit 0 = delivered); its first line says what in it matters to your user: "For your user: <one line>" or\n'
