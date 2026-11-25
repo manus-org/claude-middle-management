@@ -18,7 +18,7 @@ Usage: t3-inbox.py deliver <marker dir> <important|status> <from> <file with the
 With config quietReports.enabled (hooks/t3-report.sh decides), a worker's report is one item file
 <marker dir>/t3-inbox/<ns>-<sid8>-<pid>.json, 0600, text cut at 4000 chars (t3-wake.sh's cap). Then,
 under <inbox>/.lock (held for list + rename only, the POST runs outside it), a wake goes out only
-for an IMPORTANT item (t3-report.sh's marker regex: READY, LIVE, BLOCKED, FERTIG, question, ...);
+for an IMPORTANT item (t3-report.sh: every report but "For your user: nothing" without a token);
 a status item never wakes, in no state (coordinator 2026-11-02), it waits for the coordinator's
 next tool call, turn start or turn end, or rides along in the next digest wake:
   the coordinator is usage-limited (t3-watch.py's <cfg>/state/t3-watch/<scope>.json, checked

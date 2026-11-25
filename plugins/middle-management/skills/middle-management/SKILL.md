@@ -434,11 +434,17 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
   never printed. After a model or effort change the coordinator creates a NEW report task from
   its thread, `t3-bind`s it and deletes the old one with `delete_scheduled_task` (a re-save keeps
   the old model).
-- **Worker -> coordinator:** the last text of each worker turn, delivered by the Stop hook. Tools
-  first, report last. Its first line says what in it matters to your user: `For your user: <one line>`
-  or `For your user: nothing`. "report NOT delivered" -> send it yourself with `t3_thread_send <coordinator thread>`.
-  With `quietReports` on (README, "Quiet reports") only a READY / LIVE / blocked / question report
-  wakes the coordinator, as one digest; everything else reaches it inside its own turn as "Worker
+- **Worker -> coordinator:** the last text of a worker turn that is a report, delivered by the Stop
+  hook. Tools first, report last. A turn is a report only when a line starts with
+  `For your user: <one line>` or `For your user: nothing` (what in it matters to your user), or it
+  carries an always-send token (READY, LIVE, BLOCKED, ERROR, BUG, CRITICAL, SECURITY, a question;
+  README, "What a report is"); any other turn is not sent. Report READY, LIVE, BLOCKED, a question,
+  the wrap, an ERROR, a BUG, a CRITICAL or SECURITY finding (in capitals) and every answer to the
+  coordinator's `t3_thread_send`; never interim status or a harmless result. Your user talking to
+  you in your thread: answer there, no report line unless the coordinator must act.
+  "report NOT delivered" -> send it yourself with `t3_thread_send <coordinator thread>`.
+  With `quietReports` on (README, "Quiet reports") every report but `For your user: nothing` (without
+  a token) wakes the coordinator, as one digest; the rest reaches it inside its own turn as "Worker
   reports (quiet)": the coordinator handles those in the turn it is in, never a chat reply per report.
   While the coordinator is usage-limited no digest wakes it: the reports wait in the inbox and
   arrive as one digest after the reset (or inside the `Keepalive` turn, when that gets through
@@ -459,7 +465,7 @@ not peer messages. README, "T3 Code", has the mechanics; the rules:
 - **Coordinator -> worker:** tasking, questions and handover by `t3_thread_send <threadId>`
   (it wakes a sleeping or settled thread). No `t3_thread_wait` afterwards: the answer arrives by
   itself. No poke, no keep-warm, no peer message into a T3 thread.
-- **Follow-through.** A worker writes every READY / LIVE / blocked / question report as a log
+- **Follow-through.** A worker writes every READY / LIVE / BLOCKED / question report as a log
   entry with `topics.py entry --status <s> [--stage ready|live] [--waits-on "user · <question> · rec: <r>"] "<headline>"`
   (key from the lane dir or branch; the lane's first entry creates its topic), then reports. The
   coordinator books what reaches it otherwise, and every answer or OK of your user, with
