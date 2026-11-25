@@ -115,17 +115,22 @@ FROM=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null \
   | jq -r --arg id "$SID" 'select(.sessionId == $id) | .name | strings' 2>/dev/null | head -1)
 
 # What makes a turn a report. REPORT: a line starting with "For your user:" (any case; markdown
-# prefixes **, *, _, >, -, #, a list number "1." and backticks allowed). ALWAYS: tokens sent even
+# prefixes **, *, _, >, -, #, a list number "1." and backticks allowed, also closed before the colon:
+# "**For your user**:"). ALWAYS: tokens sent even
 # without that line, case-SENSITIVE so prose ("ready to", "no errors") does not fire; the banner
 # tells workers to write them in CAPITALS.
-REPORT='^[[:space:]>*_#`0-9.-]*For your user:'
+REPORT='^[[:space:]>*_#`0-9.-]*For your user[*_`]*:'
 ALWAYS='\b(READY|LIVE|BLOCKED|FERTIG|CRITICAL|SECURITY|BUG|ERROR|PROBLEM|FAILED|FAILING)\b|Question:|Frage:|wartet auf|Close this tab\.|\?[[:space:]]*$'
 # A marker line that says only "nothing" or "nichts" (any case, trailing ".", "**" or "`") is no
-# report: it is the habit line of a turn that matters to nobody. One marker line with news sends.
-NEWS=$(grep -iE "$REPORT" <<<"$TEXT" | sed -E 's/^[[:space:]>*_#`0-9.-]*for your user:[[:space:]*_`]*//I; s/[[:space:]*_.`]*$//' \
-  | grep -viE '^(nothing|nichts)$')
+# report: it is the habit line of a turn that matters to nobody. NEWS counts the other marker lines:
+# one with news sends, so does one with nothing behind the colon (a heading, the news on the next
+# line; a needless send beats a lost report). Lower-cased by tr, not sed's I flag: GNU only, macOS
+# has BSD sed.
+NEWS=$(grep -iE "$REPORT" <<<"$TEXT" | tr '[:upper:]' '[:lower:]' \
+  | sed -E 's/^[[:space:]>*_#`0-9.-]*for your user[*_`]*:[[:space:]*_`]*//; s/[[:space:]*_.`]*$//' \
+  | grep -vcE '^(nothing|nichts)$')
 TOKEN=$(grep -qE "$ALWAYS" <<<"$TEXT" && echo 1)
-[ -n "$TEXT" ] && [ -n "$NEWS$TOKEN" ] || exit 0   # not a report: nothing sent, nothing logged
+[ -n "$TEXT" ] && { [ "${NEWS:-0}" -gt 0 ] || [ -n "$TOKEN" ]; } || exit 0   # not a report: nothing sent, nothing logged
 
 TMP=$(umask 077; mktemp) || exit 0
 printf '%s' "$TEXT" > "$TMP"

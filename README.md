@@ -471,7 +471,8 @@ every thread, hooks included).
   answer is exactly `OK`.
 - **What a report is.** The worker decides: a turn is sent only when a line starts with `For your
   user:` and says more than `nothing` or `nichts` (any case; markdown prefixes `**`, `*`, `_`, `>`, `-`, `#` allowed, also a list number `1.`
-  and backticks) or the text carries an always-send token, case-sensitive so prose does not fire:
+  and backticks, and bold closed before the colon as in `**For your user**:`; a marker line with
+  nothing behind the colon counts as news, the news is on the next line) or the text carries an always-send token, case-sensitive so prose does not fire:
   `READY`, `LIVE`, `BLOCKED`, `FERTIG`, `CRITICAL`, `SECURITY`, `BUG`, `ERROR`, `PROBLEM`, `FAILED`,
   `FAILING` (whole words), `Question:`, `Frage:`, `wartet auf`, `Close this tab.` or a line ending
   in `?`. The `?` stays on purpose: a question is mandatory, and a needless send beats a lost

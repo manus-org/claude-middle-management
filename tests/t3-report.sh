@@ -94,6 +94,10 @@ hook "$(inp sess-s "1. For your user: numbered list")" >/dev/null
 is "marker after a list number '1. ' -> sent (r1 F6)" "$(calls)" $((N+4))
 hook "$(inp sess-s '`For your user:` in backticks')" >/dev/null
 is "marker in backticks -> sent (r1 F6)" "$(calls)" $((N+5))
+hook "$(inp sess-s "**For your user**: PR #12 is up")" >/dev/null
+is "bold closed before the colon -> sent (r3 F2)" "$(calls)" $((N+6))
+hook "$(inp sess-s "$(printf '**For your user:**\nthe PR is up, on the line below the marker')")" >/dev/null
+is "marker alone on its line, the news below -> sent (r3 F2)" "$(calls)" $((N+7))
 N=$(calls); K=0
 for T in "READY" "LIVE" "BLOCKED" "FERTIG" "CRITICAL" "SECURITY" "BUG" "ERROR" "PROBLEM" "FAILED" "FAILING" \
          "Question: x" "Frage: y" "wartet auf z" "Close this tab." "which palette?"; do
@@ -120,6 +124,7 @@ is "For your user: nothing -> not sent" "$(qnone "For your user: nothing")" sile
 is "**For your user:** Nothing. after a status line -> not sent" "$(qnone "$(printf 'Package 2 done.\n**For your user:** Nothing.')")" silent
 is "For your user: nichts -> not sent" "$(qnone "For your user: Nichts.")" silent
 is "\`For your user: nothing\` in backticks -> not sent" "$(qnone '`For your user: nothing`')" silent
+is "**For your user**: NOTHING (bold closed before the colon) -> not sent" "$(qnone "**For your user**: NOTHING")" silent
 is "two marker lines, both nothing -> not sent" "$(qnone "$(printf 'For your user: nothing\n- For your user: nothing.')")" silent
 is "For your user: <news> -> important" "$(qcls "For your user: the PR is merged")" important
 is "nothing first, news on a later marker line -> important (r1 F3)" "$(qcls "$(printf 'For your user: nothing\nFor your user: the PR is merged')")" important
@@ -207,6 +212,7 @@ has "...and logs it" "sender timed out after 2s" "$(tail -1 "$CFG/state/t3-repor
 ALL="$OUT$OUT2$OUT3$OUT4$(cat "$CFG/state/t3-report/"* 2>/dev/null)"
 lacks "no URL secret in any output or state file" "$SECRET" "$ALL"
 lacks "no [HH:MM] prefix demanded" "[HH:MM]" "$(cat "$P/hooks/t3-report.sh")"
+is "no GNU-only sed flag I in the hook (macOS runs BSD sed, r3 F1)" "$(grep -cE "/I[;' ]" "$P/hooks/t3-report.sh")" 0
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
