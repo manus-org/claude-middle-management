@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.20.0 - 2026-11-25
+
+**Workers report only when it matters.** The T3 Stop hook (`hooks/t3-report.sh`) no longer sends the
+last text of every worker turn. A turn is a report only when a line starts with `For your user:` and says more than `nothing`
+or `nichts` (any case; markdown prefixes `**`, `*`, `_`, `>`, `-`, `#`, a list number and backticks allowed) or the text carries an
+always-send token, case-sensitive so prose does not fire: `READY`, `LIVE`, `BLOCKED`, `FERTIG`,
+`CRITICAL`, `SECURITY`, `BUG`, `ERROR`, `PROBLEM`, `FAILED`, `FAILING`, `Question:`, `Frage:`,
+`wartet auf`, `Close this tab.` or a line ending in `?`. Any other turn is not sent and leaves no
+trace (the morning-takeover hold runs before this test and still logs its one "held" notice); lowercase "ready", "live" and "question" in prose no longer count. The interim hold while a
+sub-agent runs is gone (`<sid>.pending`, `held.log`, `T3_REPORT_INTERIM_MAX`): an unmarked turn is
+never sent, a marked one goes at once; a text 0.19.3 still holds is dropped. `For your user: nothing` alone, today's habit
+line of most turns, is no report. With `quietReports` on every report is `important`. The worker banner (`hooks/session-role.sh`, full text and short hint,
+in T3 Code and outside it) says what a report is and what to report: READY, LIVE, BLOCKED, a
+question, the wrap, an ERROR, a BUG, a CRITICAL or SECURITY finding (in capitals) and every answer
+to the coordinator's `t3_thread_send`; never interim status; a turn the user holds directly with
+the worker in its thread is answered there without the line unless the coordinator must act. The
+coordinator's quiet-mode line says which reports wake it. Known limit (README, "What a report is"):
+a report with neither the line nor a token is not sent. Delivery failures are handled as before.
+
 ## 0.19.3 - 2026-11-17
 
 **No wake into a usage-limited coordinator.** With `quietReports` on, worker reports no longer wake

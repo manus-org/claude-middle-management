@@ -13,7 +13,7 @@
 #   D  a failed wake: the caller's own item goes back to it (exit 4), the others stay, one line
 #   E  races: two delivers -> one wake; an inject during a wake; two injects -> every item once
 #   F  caps: a 9000-char item is cut at 4000 and drains; the digest stays within 4000
-#   G  hooks/t3-report.sh: quiet on -> the inbox, the coordinator's Stop hands it in once; off -> as before
+#   G  hooks/t3-report.sh: quiet on -> the inbox (class by the report line), the coordinator's Stop hands it in once; off -> as before
 #   H  hooks/t3-inbox.sh fast path (also: a former coordinator in the sidecar's "previous"), hooks.json
 #      registration
 #   Z  no webhook secret anywhere
@@ -297,13 +297,16 @@ printf '{"pid":1,"sessionId":"sess-w","name":"worker-1","cwd":"%s","kind":"inter
 rep() {  # $1 = Stop input JSON
   printf '%s' "$1" | env_ CLAUDE_PLUGIN_ROOT="$P" bash "$P/hooks/t3-report.sh" 2>&1; }
 stop() { jq -cn --arg s "$1" --arg t "$2" --argjson x "${3:-{\}}" '{session_id: $s, cwd: "/tmp", hook_event_name: "Stop", last_assistant_message: $t} + $x'; }
-OUT=$(rep "$(stop sess-w "working on step 2")"); is "quiet on: a status turn -> no output" "$OUT" ""
-is "...queued, no wake" "$(items)/$(nhook)" "1/0"
-is "...class status, from the registry name" "$(jq -r '[.class, .from, .session] | @tsv' "$IN"/*.json)" "status	worker-1	sess-w"
+rep "$(stop sess-w $'working on step 2\nFor your user: nothing')" >/dev/null
+is "quiet on: 'For your user: nothing' alone -> not queued (0.20.0)" "$(items)" 0
+W2=$'working on step 2\nFor your user: step 2 is merged'   # a routine report (0.20.0: unmarked turns are not sent at all)
+OUT=$(rep "$(stop sess-w "$W2")"); is "quiet on: a marked report -> no output" "$OUT" ""
+is "...queued, busy coordinator: no wake" "$(items)/$(nhook)" "1/0"
+is "...class important, from the registry name" "$(jq -r '[.class, .from, .session] | @tsv' "$IN"/*.json)" "important	worker-1	sess-w"
 [ -s "$ST/t3-report/sess-w" ] && ok "...recorded as sent (no repeat)" || bad "sha recorded" file none
-rep "$(stop sess-w "working on step 2")" >/dev/null; is "...the same text again -> not queued twice" "$(items)" 1
+rep "$(stop sess-w "$W2")" >/dev/null; is "...the same text again -> not queued twice" "$(items)" 1
 rep "$(stop sess-w "READY: lane done")" >/dev/null
-is "a READY turn -> class important (the shared marker regex)" "$(cat "$IN"/*.json | jq -r .class | sort | tr '\n' ' ')" "important status "
+is "a READY turn -> class important (an always-send token)" "$(cat "$IN"/*.json | jq -r .class | sort | tr '\n' ' ')" "important important "
 is "...busy coordinator -> still no wake" "$(nhook)" 0
 OUT=$(rep "$(stop sid-coord "my answer" '{"stop_hook_active":true}')"); is "the coordinator's Stop on a continuation -> nothing" "$OUT/$(items)" "/2"
 OUT=$(rep "$(stop sid-coord "my answer")")
@@ -317,10 +320,10 @@ has "quiet on, wake fails -> the session is told once" "report NOT delivered to 
 is "...its report is not queued twice" "$(items)" 0
 echo 202 > "$TMP/hook.code"
 printf '{"quietReports":{"enabled":false}}\n' > "$CFG/middle-management.json"; reset; coord busy
-rep "$(stop sess-w "quiet off: sent as before")" >/dev/null
+rep "$(stop sess-w "For your user: quiet off, sent as before")" >/dev/null
 is "quiet off -> one wrapped report as before, the line for the coordinator under its head, no inbox" "$(prompt)/$([ -d "$IN" ] && echo inbox || echo none)" "Report from worker-1 (thread unknown):
 $FC
-quiet off: sent as before/none"
+For your user: quiet off, sent as before/none"
 printf '{"quietReports":{"enabled":true}}\n' > "$CFG/middle-management.json"
 
 # ------------------------------------------------------------------------------------------ H --
