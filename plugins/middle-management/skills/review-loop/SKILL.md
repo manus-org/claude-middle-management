@@ -26,7 +26,8 @@ Review the plan, then the result.
 ## Step 1: assemble what the reviewer needs
 
 A sub-agent shares nothing with you; everything travels in its prompt:
-- the deliverable: the plan or handoff text, or for a result the branch, diff range or file list;
+- the deliverable: the plan or handoff text, or for a result the branch, diff range or file list,
+  plus every new file it created;
 - **its acceptance criteria**, verbatim: the kickoff, the ticket, or the plan the result was
   built from. No criteria written down anywhere? Write them now, one line each, and send those;
 - the repo root(s) and the paths of the decision log and planning docs it touches;
@@ -116,8 +117,11 @@ A lens left silent is an unfinished review.
 **Lenses for a result.** Every acceptance criterion with its evidence (a test that ran, a link,
 a screenshot path); tests claimed but not run; callers of changed code the diff did not touch;
 the failure path; a claim in the report the diff does not support; scope cut silently; lens 11
-(maintainer) on the diff; lens 12 (async paths) against the tests that exist. A diff bound for a
-pull request also gets the repo-rules walk of step 7.
+(maintainer) on the diff; lens 12 (async paths) against the tests that exist; the new files this
+deliverable created, read in full (a diff range does not show untracked files, and a shared tree
+holds other sessions' files: read only the files this deliverable created); a test the
+deliverable weakened, skipped or deleted to make the suite pass is a finding of its own. A diff
+bound for a pull request also gets the repo-rules walk of step 7.
 
 **Output shape**, per finding:
 
