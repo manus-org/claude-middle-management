@@ -26,7 +26,8 @@ Review the plan, then the result.
 ## Step 1: assemble what the reviewer needs
 
 A sub-agent shares nothing with you; everything travels in its prompt:
-- the deliverable: the plan or handoff text, or for a result the branch, diff range or file list;
+- the deliverable: the plan or handoff text, or for a result the branch, diff range or file list,
+  plus every new file it created;
 - **its acceptance criteria**, verbatim: the kickoff, the ticket, or the plan the result was
   built from. No criteria written down anywhere? Write them now, one line each, and send those;
 - the repo root(s) and the paths of the decision log and planning docs it touches;
