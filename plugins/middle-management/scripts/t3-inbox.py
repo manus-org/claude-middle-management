@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """t3-inbox.py - quiet worker reports and the user's own answers into a T3 coordinator (README
-"Quiet reports", 0.15.0; class user and the fresh coordinator, 0.19.4).
+"Quiet reports", 0.15.0; class user and the fresh coordinator, 0.20.1).
 
 Consumers: hooks/t3-report.sh (`deliver` at a worker's turn end, `inject` at the coordinator's own
   Stop), hooks/t3-inbox.sh (`inject` on PostToolUse and UserPromptSubmit), scripts/t3-watch.py

@@ -260,7 +260,7 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
   it), `t3TokenFile` (optional, default `~/.config/t3-threads/token`, mode 600) and
   `onLimitCommand` (optional, run once per usage-limit episode with the limited thread ids as
   arguments): the T3 watcher and `scripts/t3-token.sh`; `t3Url` is also where `t3-wake.sh` and
-  `morning-t3.sh` post the local twin of a relay webhook URL (0.19.4 for `t3-wake.sh`: a caller
+  `morning-t3.sh` post the local twin of a relay webhook URL (0.20.1 for `t3-wake.sh`: a caller
   without `T3CODE_PORT` no longer falls through to the cloud relay). See [T3 Code](#t3-code).
 - `quietReports` (optional, 0.15.0, default off): `{"enabled": true, "fallbackMin": 20,
   "debounceMin": 10}` sends worker reports into an awake T3 coordinator without a turn each.
@@ -283,7 +283,7 @@ One user-global file, `<config-dir>/middle-management.json` (config dir =
   cue to prepare the handoff. A value at or above `handoverTokens` is ignored.
 - `morningTakeover`, `morningTaskUrlFile`, `morningWaitUntil`, `morningRoot` (optional, 0.11.1):
   the morning chain under T3 Code. See [Morning coordinator in T3 Code](#morning-coordinator-in-t3-code).
-- `reviveTakeover`, `reviveTaskUrlFile` (optional, 0.19.4, default off): the same takeover by day,
+- `reviveTakeover`, `reviveTaskUrlFile` (optional, 0.20.1, default off): the same takeover by day,
   started by the T3 watcher when your user's answer or an important report waits for a coordinator
   that is gone, wrapped, or cold and large. `reviveTakeover` has the shape of `morningTakeover`
   (your user's standing word); `reviveTaskUrlFile` defaults to `~/.config/t3-threads/revive-task-url`
@@ -575,7 +575,7 @@ changes the worker side of the Stop hook; everything else stays as above.
   quiet).
 - **Not covered.** A report sent by hand with `t3-wake.sh` (a session outside T3, pathfinder's push,
   an inbound phone poller, the watcher's own wakes) keeps its own turn. The flag is machine-wide, for every scope.
-- **Your user's own answers (0.19.4, class `user`).** A channel that carries your user's answer to
+- **Your user's own answers (0.20.1, class `user`).** A channel that carries your user's answer to
   the coordinator (a decision page, a phone poller; a sender that is no session) calls
   `MM_SESSION_ID="" t3-inbox.py deliver <marker dir> user <from> <file>`, with or without
   `quietReports`; the wake goes through that marker dir's own sidecar, whatever directory the
@@ -607,7 +607,7 @@ changes the worker side of the Stop hook; everything else stays as above.
 
 ### A fresh coordinator by day
 
-0.19.4, off unless `reviveTakeover` is set. Waking a coordinator that has been quiet for an hour
+0.20.1, off unless `reviveTakeover` is set. Waking a coordinator that has been quiet for an hour
 re-pays its whole context uncached; past `handoverWarnTokens` its own banner tells it to hand over
 anyway. So when an important report or your user's answer waits and the seat needs a fresh
 coordinator, nobody is woken: the watcher starts one, the way the morning chain does.

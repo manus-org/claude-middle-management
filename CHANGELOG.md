@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.19.4 - 2026-11-17
+## 0.20.1 - 2026-11-27
 
 **Your user's answer always finds a coordinator.** A channel that carries your user's own answer
 (a decision page, a phone poller; a sender that is no session) now goes through the inbox as class
