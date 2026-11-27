@@ -601,6 +601,9 @@ changes the worker side of the Stop hook; everything else stays as above.
   per limit episode: "Your answer is saved: it reaches the coordinator after HH:MM" (T3's reset time,
   else "after the limit resets"). A failed wake writes one `failures.log` line per failure episode,
   which the watcher names as your answer that stays queued.
+- **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the
+  update keeps its old hooks (no inbox hook, no Stop drain) until it restarts, e.g. after T3's
+  30-min idle end or a new claim. Until then its status reports arrive only inside digests.
 
 ### A fresh coordinator by day
 
@@ -647,9 +650,6 @@ coordinator, nobody is woken: the watcher starts one, the way the morning chain 
   one.
 - **Loud, never a loop.** A failed start, a refused claim, or no claim within 30 min of the post:
   one red notice with the command to try again, no new start until the seat changes hands.
-- **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the
-  update keeps its old hooks (no inbox hook, no Stop drain) until it restarts, e.g. after T3's
-  30-min idle end or a new claim. Until then its status reports arrive only inside digests.
 
 ## Morning coordinator in T3 Code
 

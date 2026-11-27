@@ -518,11 +518,11 @@ def decide(inbox, sid, items, hold=False):
     last = stamp(os.path.join(inbox, ".last-wake"))
     if NOW - last < WAKING_S:
         return None, None
+    if imp and NOW - min(num(it.get("at"), NOW) for it in imp) >= fallback:
+        return "fallback", None     # in every state, also while a user item waits on a busy one
     state = coordinator(sid)
     if usr:             # the user waits for it: at once, no debounce, no fallback wait
         return (None, None) if state == "busy" else ("user", None)
-    if NOW - min(num(it.get("at"), NOW) for it in imp) >= fallback:
-        return "fallback", None
     if state == "asleep":
         return "asleep", None
     if state == "unknown":

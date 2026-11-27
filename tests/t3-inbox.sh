@@ -18,7 +18,8 @@
 #      registration
 #   U  class user (the user's own answer, a sender that is no session): queued with no seat (exit 9),
 #      no watcher (exit 4), held in a usage limit / by the morning claim, wake at once (no debounce),
-#      busy -> its hooks, a failed wake keeps it (one line per episode), the fresh-coordinator
+#      busy -> its hooks (an important item past fallbackMin still wakes beside it), a failed wake
+#      keeps it (one line per episode), the fresh-coordinator
 #      decision by idle time AND context size (both sides of each threshold), a wrapped holder,
 #      reviveTakeover off -> wake as before, the receipt (moved -> gone, 15 min unmoved -> queued again,
 #      no further wake into that session), quietReports off, the local twin built from t3Url
@@ -406,6 +407,11 @@ is "...200 s later (inside debounceMin 10) -> a user item wakes anyway" "$(du 26
 has "...carrying both" "second answer" "$(prompt)"
 coord busy
 is "busy -> exit 0, no wake (its hooks hand it in)" "$(du 600 "while busy")/$(nhook)/$(items)" "0|/2/1"
+dl 700 important w1 "READY beside the answer" >/dev/null
+is "...an important report beside the waiting answer, busy -> no wake yet" "$(nhook)/$(items)" "2/2"
+fresh 1950; dl 1950 status w2 "a status report" >/dev/null
+is "...the important one past fallbackMin while the answer waits -> the fallback wake, as without it (review r3)" "$(nhook)/$(items)" "3/0"
+has "...carrying the answer" "while busy" "$(prompt)"; has "...and the report" "READY beside the answer" "$(prompt)"
 reset; coord asleep; fresh 0; echo 500 > "$TMP/hook.code"
 is "a failed wake -> exit 9, the watcher retries" "$(du 10 "webhook down")" "9|t3-inbox: queued: wake failed, the watcher retries"
 is "...not handed back: still queued" "$(items)/$(texts)" "1/webhook down"
