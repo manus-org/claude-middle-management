@@ -231,7 +231,7 @@ touch -d "1 hour ago" "$SIDE"
 NOWS=$(date +%s)
 printf '{"pid":1,"sessionId":"sess-m","kind":"interactive","cwd":"/x","name":"morning","startedAt":%s}\n' "$((NOWS * 1000))" > "$CD/sessions/1.json"
 printf '{"pid":2,"sessionId":"sess-w","kind":"interactive","cwd":"/x","name":"worker","startedAt":%s}\n' "$(( (NOWS - 7200) * 1000))" > "$CD/sessions/2.json"
-stop() { rm -f "$TMP/hook.log"; jq -n --arg s "$1" '{session_id:$s, last_assistant_message:"REFUSED: something"}' \
+stop() { rm -f "$TMP/hook.log"; jq -n --arg s "$1" '{session_id:$s, last_assistant_message:"For your user: REFUSED: something"}' \
   | HOME="$H" CLAUDE_CONFIG_DIR="" T3CODE_HOME="$H/.t3" CLAUDE_PLUGIN_ROOT="$P" T3CODE_PORT=1 bash "$P/hooks/t3-report.sh" >/dev/null 2>&1; }
 printf '%s\tposted\t%s\t1\n' "$(date +%F)" "$((NOWS - 30))" > "$CD/state/morning-t3/status"
 stop sess-m; [ -e "$TMP/hook.log" ] && bad "the morning thread before its claim -> nothing sent" none "$(cat "$TMP/hook.log")" || ok "the morning thread before its claim -> nothing sent"
@@ -249,7 +249,7 @@ printf '%s\trefused\t%s\t1\n' "$(date +%F)" "$NOWS" > "$CD/state/morning-t3/stat
 stop sess-w2; has "claim refused -> a worker started after the post reports again" "REFUSED: something" "$(cat "$TMP/hook.log" 2>/dev/null)"
 printf '%s\trefused\t%s\t1\tsess-m\n' "$(date +%F)" "$NOWS" > "$CD/state/morning-t3/status"; rm -f "$CD/state/t3-report/"sess-*
 stop sess-m; [ -e "$TMP/hook.log" ] && bad "the refused morning thread itself stays held (no wake into the night coordinator)" none "$(cat "$TMP/hook.log")" || ok "the refused morning thread itself stays held (no wake into the night coordinator)"
-OUT=$(jq -n '{session_id:"sess-m", last_assistant_message:"another turn"}' | HOME="$H" CLAUDE_CONFIG_DIR="" T3CODE_HOME="$H/.t3" CLAUDE_PLUGIN_ROOT="$P" T3CODE_PORT=1 bash "$P/hooks/t3-report.sh" 2>&1)
+OUT=$(jq -n '{session_id:"sess-m", last_assistant_message:"For your user: another turn"}' | HOME="$H" CLAUDE_CONFIG_DIR="" T3CODE_HOME="$H/.t3" CLAUDE_PLUGIN_ROOT="$P" T3CODE_PORT=1 bash "$P/hooks/t3-report.sh" 2>&1)
 is "...told once per day, then quiet" "$OUT" ""
 stop sess-w2; has "...every other session reports" "REFUSED: something" "$(cat "$TMP/hook.log" 2>/dev/null)"
 printf '%s\tclaimed\t%s\t1\n' "$(date +%F)" "$NOWS" > "$CD/state/morning-t3/status"; rm -f "$CD/state/t3-report/sess-w2"

@@ -269,10 +269,11 @@ repositories; the user names them.
     (default `~/.config/t3-threads/token`, mode 600) and `onLimitCommand` (optional, run once
     per usage-limit episode with the limited thread ids as arguments; output is dropped).
     Then ask about quiet reports (README, "Quiet reports"): should worker reports reach an awake
-    coordinator inside its own turn instead of one turn each, so only READY/LIVE/BLOCKED/a question
-    wakes it? Yes means `quietReports: {"enabled": true}` (`fallbackMin` 20 and `debounceMin` 10
-    only when the user wants other values); it is machine-wide, so only once every coordinator on
-    this machine runs this version. Then offer step 8.
+    coordinator inside its own turn instead of one turn each, and wake an asleep or idle one with
+    ONE digest (every report is important; a turn without news is not sent at all)? Yes means
+    `quietReports: {"enabled": true}` (`fallbackMin` 20 and `debounceMin` 10 only when the user
+    wants other values); it is machine-wide, so only once every coordinator on this machine runs
+    this version. Then offer step 8.
 
 16b. **Morning coordinator in T3 Code** (README, "Morning coordinator in T3 Code"; only with T3
     Code). Ask whether a fresh coordinator thread should take over each weekday morning. Yes means:

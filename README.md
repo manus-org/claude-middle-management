@@ -109,7 +109,7 @@ registry) — if it says nothing at all, the hooks are not armed yet: restart th
 | Open-items drop | script + banner line | Every session writes each "for later" item the moment it appears, with `scripts/open-items.py add`, to its own file under `<config-dir>/open-items/`; the coordinator's banner counts what is not on the board yet, `list` shows it, and `done` deletes a file only once every key is on the board and the session is gone. A to-do no longer dies with a session that never wrapped, or with a coordinator hand-over. |
 | `morning-ritual` skill | skill | The coordinator’s day-opener: messages delta, repo state, wrap audit, board sweep, machine cleanup, your user’s to-do list, day plan. The to-do list also runs alone ("todo list", "meine offenen To-Dos"): every open `owner: user` item from the board and the drops, grouped decide / click / run / read, only what was not delivered yet (`open-items.py todo`). Coordinator sessions only; carries CUSTOMIZE markers for your team’s stack. |
 | Headless morning ritual | systemd user timer (optional, Linux) | Weekdays 07:30: nothing moved since the last delivered ritual → one short "Nothing new since <time>" note, no model run. Otherwise a 25-second login probe (429/401/no answer → a second credential from a file the unit names), the `morning-ritual` skill under `--max-budget-usd` and a hard timeout, and the day plan through your `notifyCommand`. A failure arrives in words: what failed, what still works, the one command that fixes it, the raw cause as a last `Detail:` line, not journal lines. Installed by setup step 7; see [Headless morning ritual](#headless-morning-ritual). |
-| T3 report hook | Stop hook (T3 Code only) | In a T3 Code thread whose scope's coordinator is bound to a thread: sends the last text of each worker turn to the coordinator's report task, which wakes it, also when it is asleep. Holds short interim turns while its own sub-agents run and sends them with the next turn (a report is sent at once); skips repeats and a bare `OK`; a failed send is told to the session once. With `quietReports` on, reports go into an inbox and only an important one wakes the coordinator; the rest reaches it inside its own turn (PostToolUse / UserPromptSubmit hook `hooks/t3-inbox.sh`). See [T3 Code](#t3-code), [Quiet reports](#quiet-reports). |
+| T3 report hook | Stop hook (T3 Code only) | In a T3 Code thread whose scope's coordinator is bound to a thread: sends the last text of a worker turn that is a report (a line starting with `For your user:`, or an always-send token such as READY, BLOCKED, ERROR or a question; see "What a report is" under [T3 Code](#t3-code)) to the coordinator's report task, which wakes it, also when it is asleep. Any other turn is not sent; skips repeats and a bare `OK`; a failed send is told to the session once. With `quietReports` on, reports go into an inbox and only an important one wakes the coordinator; the rest reaches it inside its own turn (PostToolUse / UserPromptSubmit hook `hooks/t3-inbox.sh`). See [T3 Code](#t3-code), [Quiet reports](#quiet-reports). |
 | T3 watcher | systemd user timer (optional, Linux) | Every 10 minutes, no model: usage limits (with a retry), clicks pending, stuck runs, lost reports, an open handover, a folder without coordinator, and the topics tick. Installed by setup step 8. |
 | Follow-through | script + timer tick | `scripts/topics.py` is the one writer of a topic's state: it appends the session-log entry and keeps a table `<board>.topics.md`, a reminder digest and a daily digest, so no topic drops out of sight before it is done, reviewed and OK'd. See [Follow-through](#follow-through). |
 | `work-packages` skill + two hooks | skill, PreToolUse + SubagentStop hooks | Every sub-agent writes its package list into a report file first and appends each result at once, so a sub-agent that dies at 99 % leaves its work behind. A prompt without a `Report file:` line is refused; a sub-agent that ends without touching its report is held once. See [Sub-agents](#sub-agents). |
@@ -466,7 +466,8 @@ every thread, hooks included).
   during a handover. The URL is a capability into a full-access thread: never printed, logged or
   put in argv; only `scripts/t3-wake.sh` reads it.
 - **Wake paths.** (1) Every session that is not the current coordinator: its Stop hook
-  (`hooks/t3-report.sh`) sends the last text of each turn through `t3-wake.sh`, which counts it as
+  (`hooks/t3-report.sh`) sends the last text of a turn that is a report (see "What a report is"
+  below) through `t3-wake.sh`, which counts it as
   delivered only on HTTP 202. A failure blocks the session once with "report NOT delivered ... send
   it yourself with t3_thread_send <thread>" and lands in `<config-dir>/state/t3-report/failures.log`.
   (2) The watcher, only on an anomaly. (3) The coordinator tasks a worker with `t3_thread_send`,
@@ -475,8 +476,27 @@ every thread, hooks included).
   cannot reach a thread whose process has ended; exit 0 only on 202, anything else is not delivered.
   A pure retry or liveness ping is the single word `Keepalive`, never wrapped in other text; the
   answer is exactly `OK`.
-- **Report format.** A worker's report opens with `For your user: <one line>` or `For your user:
-  nothing` (the worker banner asks for it). Every head that hands worker reports to the coordinator
+- **What a report is.** The worker decides: a turn is sent only when a line starts with `For your
+  user:` and says more than `nothing` or `nichts` (any case; markdown prefixes `**`, `*`, `_`, `>`, `-`, `#` allowed, also a list number `1.`
+  and backticks, and bold closed before the colon as in `**For your user**:`; a marker line with
+  nothing behind the colon counts as news, the news is on the next line) or the text carries an always-send token, case-sensitive so prose does not fire:
+  `READY`, `LIVE`, `BLOCKED`, `FERTIG`, `CRITICAL`, `SECURITY`, `BUG`, `ERROR`, `PROBLEM`, `FAILED`,
+  `FAILING` (whole words), `Question:`, `Frage:`, `wartet auf`, `Close this tab.` or a line ending
+  in `?`. The `?` stays on purpose: a question is mandatory, and a needless send beats a lost
+  question. Any other turn (interim status, a sub-agent finishing, a harmless result) is not sent
+  and leaves no trace, except that the morning-takeover hold runs before this test and may still log
+  its one "held" notice per session (see "Morning coordinator in T3 Code"). The worker banner says
+  what to report: READY, LIVE, BLOCKED, a question, the wrap, an ERROR, a BUG, a CRITICAL or
+  SECURITY finding (those words in capitals), and every answer to a coordinator's `t3_thread_send`
+  (the coordinator does not `t3_thread_wait`; the answer reaches it only as a report, so something
+  only for the coordinator goes on the line: `For your user: nothing new · <point>`). A turn the
+  user holds directly with the worker in its thread is answered there without the line, unless the
+  coordinator must act. Known limit: a report that should go out but has neither the line nor a
+  token is not sent; the banner and the tokens are the two nets, the hook cannot see intent. A
+  delivery failure is never silent (below).
+- **Report format.** A worker's report carries `For your user: <one line>` or `For your user:
+  nothing` on a line of its own, anywhere in the text (the worker banner asks for it). Every head
+  that hands worker reports to the coordinator
   (`Report from <from> (thread <id>):`, the quiet digest and "Worker reports (quiet)") has the line
   "For the coordinator, not for your user: take these reports in and book them. ..." directly
   under it, so the coordinator writes to its user only what matters to them. A sender that is no
@@ -520,16 +540,16 @@ every thread, hooks included).
 
 ### Quiet reports
 
-Off by default. Without it every worker turn is a turn of the coordinator's thread, and an awake
+Off by default. Without it every worker report is a turn of the coordinator's thread, and an awake
 coordinator answers each one: while your user reads one answer, five more arrive. `"quietReports":
 {"enabled": true}` (optional `fallbackMin`, default 20, and `debounceMin`, default 10, in minutes)
 changes the worker side of the Stop hook; everything else stays as above.
 
-- **The inbox.** After the usual filters (morning hold, `OK`, repeats, the sub-agent hold) a
+- **The inbox.** After the usual filters (morning hold, `OK`, repeats, not a report) a
   worker's report becomes one item in `<marker dir>/t3-inbox/` (mode 0600, cut at 4000 chars),
-  written by `scripts/t3-inbox.py deliver`. Its class comes from the hook's one marker pattern:
-  **important** = READY, LIVE, BLOCKED, FERTIG, question, `Frage:`, `wartet auf`, `Close this tab.`
-  or a line ending in `?` (any case); everything else is **status**.
+  written by `scripts/t3-inbox.py deliver`. Every worker report is **important** (since 0.20.0 a
+  turn whose `For your user:` lines all say `nothing` or `nichts` and that carries no token is not
+  sent at all, so the hook no longer writes **status** items).
 - **When the coordinator is woken.** Only for an important item, with ONE digest of every pending
   item that fits into 4000 chars, oldest first (`t3-wake.sh --digest`, sent unwrapped): when it is
   asleep (no live registry entry), when the oldest important item is `fallbackMin` old, when its
