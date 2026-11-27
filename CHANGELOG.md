@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.2 - 2026-11-27
+
+**The result review reads the new files and catches weakened tests.** Two lines in the review loop's
+lenses for a result: the new files the deliverable created are read in full, because a diff range
+does not show untracked files (in a shared tree only the files the deliverable created, not other
+sessions' files); and a test the deliverable weakened, skipped or deleted to make the suite
+pass is a finding of its own.
+
 ## 0.20.1 - 2026-11-27
 
 **Your user's answer always finds a coordinator.** A channel that carries your user's own answer
