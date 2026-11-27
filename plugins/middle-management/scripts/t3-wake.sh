@@ -20,6 +20,7 @@
 #        MM_SCOPE_CWD  the directory whose scope's coordinator is woken (default: the cwd)
 #        MM_SESSION_ID the caller's Claude session id (default: CLAUDE_CODE_SESSION_ID; set it to ""
 #                      for a caller that is no session, like the watcher)
+#        T3_WAKE_TIMEOUT (s per POST, default 4), T3_WAKE_NO_LOCAL, T3_WAKE_RELAY_PREFIX (test seam)
 #
 # Reads the scope's sidecar <marker dir>/orchestrator.t3.json (written 0600 by orchestrator.sh
 # t3-bind), POSTs {from, session, thread, report, prompt} to its reportUrl and counts as delivered ONLY on
@@ -112,10 +113,14 @@ BODY=$(jq -cn --arg from "$FROM" --arg session "$SID" --arg thread "$THREAD" --a
   || fail "could not build the JSON body"
 
 # Local before cloud: the relay URL https://relay.t3.codes/v1/hooks/<env>/<task>/<token> has the local twin
-# http://127.0.0.1:<T3CODE_PORT>/api/hooks/<task>/<token> (proven 2026-10-20). Local first, the relay only as fallback.
+# <t3Url>/api/hooks/<task>/<token> (proven 2026-10-20; config t3Url, else http://127.0.0.1:<T3CODE_PORT, 8470>,
+# as morning-t3.sh and t3-watch.py: a caller without T3CODE_PORT still finds this box's server).
+# Local first, the relay only as fallback.
 LOCAL=""
+BASE=$(jq -r '.t3Url | strings' "$CFG_FILE" 2>/dev/null); [ -n "$BASE" ] || BASE="http://127.0.0.1:${T3CODE_PORT:-8470}"
+RELAY="${T3_WAKE_RELAY_PREFIX:-https://relay.t3.codes/v1/hooks/}"   # test seam: a local stand-in for the relay
 case $URL in
-  https://relay.t3.codes/v1/hooks/*/*/*) R=${URL#https://relay.t3.codes/v1/hooks/}; LOCAL="http://127.0.0.1:${T3CODE_PORT:-8470}/api/hooks/${R#*/}" ;;
+  "$RELAY"*/*/*) R=${URL#"$RELAY"}; LOCAL="${BASE%/}/api/hooks/${R#*/}" ;;
 esac
 # Time budget: at most two POSTs of T3_WAKE_TIMEOUT (default 4 s) each, so the sender ends well inside
 # the Stop hook's 20 s (hooks.json) and its failure line always gets written (t3-report.sh adds a guard).

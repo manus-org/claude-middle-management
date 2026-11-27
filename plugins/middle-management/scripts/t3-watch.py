@@ -3,10 +3,11 @@
 
 Consumers: templates/systemd/t3-watch.service (started every 10 min by t3-watch.timer; both
   installed as USER units by /middle-management-setup), tests/t3-watch.sh, by hand for
-  `--dry-run` / `--stats`. Calls t3-wake.sh, scope.py, t3-inbox.py (imported: the quiet-reports
-  tick) and, when it exists, topics.py (all beside it, copy set middle-management-t3watch). Reads
+  `--dry-run` / `--stats`. Calls t3-wake.sh, scope.py, t3-inbox.py (imported: the inbox tick,
+  receipts, the fresh-coordinator check), morning-t3.sh --revive and, when it exists, topics.py
+  (all beside it, copy set middle-management-t3watch). Reads
   <cfg>/state/t3-report/{failures.log,posts.tsv}, which t3-wake.sh and t3-inbox.py write, and
-  <seat dir>/morning-t3/status, which morning-t3.sh writes.
+  <seat dir>/{morning-t3,revive-t3}/status, which morning-t3.sh writes.
 
 Usage: t3-watch.py [--dry-run] | --stats
   --dry-run  print every notify, wake and probe instead of doing it, keep no state; scopes without
@@ -41,10 +42,32 @@ top-level threads of the scope's T3 project(s), the coordinator thread included:
                  after the post, and the sidecar is older than that post, the sidecar still names the
                  night coordinator, which is about to lose the seat: nothing wakes it. "limit over" and
                  "other failure" go to the user as a notify instead, the Keepalive retry is skipped.
+                 The same hold off <seat dir>/revive-t3/status "posted" (morning-t3.sh --revive, until
+                 claim --revive; told by the post's age, not its date, so also across midnight): while
+                 the fresh coordinator by day has not taken the seat, the old one is not woken either.
+  answer held    a user item (t3-inbox.py class user) waits while the coordinator is limited ->
+                 notify once per limit episode: saved, it comes after the reset time
 Plus: topics.py tick --scope <name> for every scope when topics.py exists (with or without sidecar),
-and with config quietReports.enabled the inbox tick of t3-inbox.py for every scope (README "Quiet
-reports": the fallback wake, a debounced wake whose window has passed, the 24-h drop; no wake while
-the morning claim is pending), also when the T3 API is down: it needs only the inbox and the webhook.
+and for every scope, also when the T3 API is down (it needs only the inbox and the webhook):
+  receipts       t3-inbox.py receipts(): a user item woken with 202 whose session did not move within
+                 15 min goes back into the queue -> notify once per session
+  inbox tick     t3-inbox.py tick (README "Quiet reports": the fallback wake, a debounced wake whose
+                 window has passed, a user item that waited, the 24-h drop; no wake while the morning
+                 claim is pending); with quietReports off it handles user items only
+  revive         an important or user item waits AND t3-inbox.py fresh_needed() (no seat, the holder
+                 wrapped, or asleep, quiet >= MM_STALE_SEAT_MIN and over handoverWarnTokens or past
+                 a missed receipt; never while a t3-handover is open) AND not limited AND no morning
+                 or revive post under 30 min old AND the morning chain does not come first (its
+                 trigger waits out a limit, or orch-morning-t3.timer elapses within
+                 MM_STALE_SEAT_MIN + 1 h) AND
+                 config reviveTakeover allowed AND the scope is morningRoot's (default without
+                 scopes) -> morning-t3.sh --revive, one notify naming why. Latch: one start per seat
+                 episode (the sidecar's sessionId, or "none"; kept while a claim --revive has dropped
+                 the sidecar until t3-bind), at most 3 a day. Its status "limited"
+                 -> one notify, retried on a later tick; a failed start, "refused", or no claim
+                 within 30 min of "posted" -> one red notify, no retry until the seat changes hands.
+                 Revive off and no seat -> one notify per seat episode for a waiting user item; a
+                 seat held by a live session without sidecar, a user item 30 min old -> one notify.
 It runs after the scope checks, so while <cfg>/state/t3-watch/<scope>.json names the coordinator in
 limit.runs (and the reset time in limit.resets has not passed) t3-inbox.py holds the digest; the
 tick that ends the episode, or the first one past the reset time, sends it.
@@ -53,7 +76,7 @@ notify per kind and day, never a crash. Secrets: the token (config t3TokenFile, 
 ~/.config/t3-threads/token, refused when group/other can read it) only goes into a request header;
 notifyCommand / onLimitCommand are executed, never echoed; the webhook URL is t3-wake.sh's alone.
 The T3 server: config t3Url, default http://127.0.0.1:$T3CODE_PORT (8470 when unset).
-Env: T3CODE_PORT, T3W_NOW (epoch, test seam), CLAUDE_CONFIG_DIR.
+Env: T3CODE_PORT, T3W_NOW (epoch, test seam), CLAUDE_CONFIG_DIR, MM_STALE_SEAT_MIN (t3-inbox.py).
 Exit 0, or 1 when a notify could not be delivered (systemd's OnFailure alarm then fires).
 """
 import collections, datetime, importlib.util, json, os, re, subprocess, sys, tempfile, time, urllib.error, urllib.request
@@ -338,23 +361,18 @@ def threads_of(shell, name, ss, coord_id):
 
 
 def morning_pending(sdir):
-    """True while today's morning thread was started (morning-t3.sh status "posted"; claim --morning
-    turns it into "claimed" or "refused"), the post is under 30 min old, and the seat is not bound
-    anew yet (the sidecar is older than the post). The sidecar then still names the night
-    coordinator, and a wake would make it re-pay its whole context for a seat it is about to lose.
-    ponytail: the window is told by time, not by thread id: any wake in it goes to the user instead."""
-    try:
-        with open(os.path.join(sdir, "morning-t3", "status"), encoding="utf-8") as f:
-            day, state, at = (f.readline().rstrip("\n").split("\t") + ["", "", ""])[:3]
-        at = float(at)
-    except (OSError, ValueError):
-        return False
-    if day != TODAY or state != "posted" or NOW - at >= MORNING_HOLD_S:
-        return False
-    try:
-        return os.path.getmtime(os.path.join(sdir, "orchestrator.t3.json")) < at
-    except OSError:
-        return False
+    """t3-inbox.py morning_pending(): today's morning thread was posted < 30 min ago and has not bound
+    the seat yet; nothing wakes the night coordinator meanwhile."""
+    return INBOX.morning_pending(sdir)
+
+
+def revive_pending(sdir):
+    """The daytime twin: a fresh coordinator was started (revive(), morning-t3.sh --revive; status
+    "posted" < 30 min, whatever its date) and has not bound the seat yet (the sidecar predates the
+    post, so it still names the old holder); nothing wakes the old holder meanwhile. Otherwise the
+    wake re-pays the cold context the takeover exists to avoid, and a holder that moved minutes ago
+    makes the following claim --revive refuse (orchestrator.sh: "moved ... ago")."""
+    return INBOX.morning_pending(sdir, "revive-t3")
 
 
 def check_scope(name, sdir, side, shell, ss):
@@ -363,10 +381,16 @@ def check_scope(name, sdir, side, shell, ss):
     coord_id = side.get("threadId") if isinstance(side.get("threadId"), str) else ""
     threads, coord = threads_of(shell, name, ss, coord_id)
     is_coord = lambda t: coord is not None and t["id"] == coord["id"]  # noqa: E731
-    pending = morning_pending(sdir)
     old = '"%s"' % cut(side["title"]) if side.get("title") else ""      # the seat holder the sidecar names
-    held = "The night coordinator%s is not woken: this morning's coordinator has not taken the seat yet." % (
-        " " + old if old else "")
+    # the hold: the seat is about to change hands, so nothing below wakes the holder the sidecar names
+    pending = morning_pending(sdir)
+    if pending:
+        held = "The night coordinator%s is not woken: this morning's coordinator has not taken the seat yet." % (
+            " " + old if old else "")
+    else:
+        pending = revive_pending(sdir)
+        held = "The old coordinator%s is not woken: a fresh coordinator was started and has not taken the seat yet." % (
+            " " + old if old else "")
     live = lambda t: t.get("activityRunStatus") == "running"           # noqa: E731
 
     # no coordinator: the seat names a thread that is gone, settled or archived
@@ -479,6 +503,13 @@ def check_scope(name, sdir, side, shell, ss):
             if free:
                 limit_over(free)
         ep["freed"] = freed
+        # a user's answer held by the coordinator's limit: one line per episode (t3-inbox.py holds it)
+        if coord is not None and coord["id"] in limited and not ep.get("answer_told") \
+                and "user" in INBOX.waiting(sdir):
+            u = iso_when(coord.get("usageLimitResetAt"))
+            notify(name, "🟡 Your answer is saved: it reaches the coordinator after %s" % (u or "the limit resets"),
+                   ["The coordinator is at its usage limit.", "Nothing to do."])
+            ep["answer_told"] = True
         st["limit"] = ep
     elif ep:
         n = len(ep.get("notified", []))
@@ -549,10 +580,13 @@ def report_lost(gstate):
         facts, kinds = [], set()
         for i, ln in enumerate(lines):
             c = (ln.split("\t") + [""] * 5)[:5]      # time, from, session id, thread id, reason
-            kind = "digest" if c[4].startswith("digest wake failed") else "watcher" if c[1] == "t3-watch" else "session"
+            kind = "digest" if c[4].startswith("digest wake failed") else "answer" \
+                if c[4].startswith("answer wake failed") else "dropped" if c[4].startswith("answer dropped") \
+                else "watcher" if c[1] == "t3-watch" else "session"
             kinds.add(kind)
             if i < 10:
-                who = {"digest": "quiet-report digest", "watcher": "the watcher's notice"}.get(kind) \
+                who = {"digest": "quiet-report digest", "answer": "your answer", "dropped": "your answer",
+                       "watcher": "the watcher's notice"}.get(kind) \
                     or cut(c[1] or "a session")
                 facts.append("• %s: %s" % (" ".join(x for x in (iso_when(c[0]), who) if x), why(c[4])))
         if len(lines) > 10:
@@ -560,10 +594,12 @@ def report_lost(gstate):
         facts.append("")
         if "session" in kinds:
             facts.append("A report from a session is still in that session: read it there, or ask the coordinator to.")
+        if "dropped" in kinds:
+            facts.append("An answer dropped after 24 h is not lost where you gave it: give it again, or ask the coordinator to read it there.")
         if "watcher" in kinds:
             facts += ["The watcher retries its usage-limit notices every 30 min.",
                       "A notice about a failed session is not retried: check T3 for failed sessions."]
-        if kinds == {"digest"}:
+        if kinds <= {"digest", "answer"}:
             facts.append("Nothing to do now.")
         noun = "worker report" if kinds == {"session"} else "message"
         notify("all", "🔴 %d %s%s did not reach the coordinator" % (len(lines), noun, "" if len(lines) == 1 else "s"), facts)
@@ -571,12 +607,16 @@ def report_lost(gstate):
 
 def why(reason):
     """A failures.log reason in words: "http <code>" (000 = no answer) and the sidecar checks from
-    t3-wake.sh, the morning hold from hooks/t3-report.sh, the two quiet-digest lines from
-    t3-inbox.py; anything else cut short."""
+    t3-wake.sh, the morning hold from hooks/t3-report.sh, the three wake lines from t3-inbox.py;
+    anything else cut short."""
     m = re.search(r"\bhttp (\d+)", reason)
     code = ("no answer" if m[1] == "000" else "refused (HTTP %s)" % m[1]) if m else "not delivered"
     if reason.startswith("digest wake failed"):        # the inbox tick runs on every watcher tick
         return code + "; the reports stay queued and are retried every 10 min"
+    if reason.startswith("answer wake failed"):        # a user item: queued, never handed back
+        return code + "; it stays queued and is retried every 10 min"
+    if reason.startswith("answer dropped"):
+        return "dropped after 24 h undelivered"
     if "quiet digest wake" in reason:
         return code + "; the report went back to its session"
     if reason.startswith("held: the morning thread"):
@@ -584,6 +624,158 @@ def why(reason):
     if reason.startswith("sidecar "):                  # mode not 0600 / no usable reportUrl: t3-bind rewrites it
         return "the coordinator's seat file is broken: have the coordinator claim the seat again"
     return code if re.fullmatch(r"http \d+", reason) else cut(reason, 80)
+
+
+def stamp_of(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def morning_first(sdir):
+    """True while the morning chain is about to own the seat, so no daytime takeover may race it:
+    today's trigger waits out a usage limit (morning-t3/status "waiting", its pid alive), or, with
+    morningTakeover allowed, orch-morning-t3.timer elapses within MM_STALE_SEAT_MIN plus an hour
+    (default 2 h: the takeover's work, then the quiet claim --morning needs; systemctl --user show;
+    no systemd or no timer = no hold). The "posted" window is INBOX.posted_at's."""
+    try:
+        with open(os.path.join(sdir, "morning-t3", "status"), encoding="utf-8") as f:
+            day, state, _, pid = (f.readline().rstrip("\n").split("\t") + ["", "", "", ""])[:4]
+        if day == TODAY and state == "waiting":
+            os.kill(int(pid), 0)
+            return True
+    except (OSError, ValueError):
+        pass
+    mt = CFG.get("morningTakeover")
+    if not (isinstance(mt, dict) and mt.get("allowed") is True):
+        return False
+    try:
+        out = subprocess.run(["systemctl", "--user", "show", "orch-morning-t3.timer", "-p",
+                              "NextElapseUSecRealtime", "--value"], capture_output=True, text=True,
+                             timeout=10).stdout
+        m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", out)
+        at = time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")) if m else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        at = None
+    # the window: an hour of work plus the quiet time claim --morning needs (MM_STALE_SEAT_MIN, the
+    # same value t3-inbox.py reads), so a takeover is quiet enough for the morning claim at timer time
+    return at is not None and 0 <= at - NOW <= INBOX.STALE_S + 3600
+
+
+def revive(name, sdir, missed):
+    """The revive step of one scope (docstring "revive"). missed = the sessions receipts() found
+    unmoved 15 min after a 202. State: <scope>.json key "revive"."""
+    st_path = os.path.join(STATE_DIR, name + ".json")
+    st = load(st_path, {})
+    rv0 = st.get("revive") if isinstance(st.get("revive"), dict) else {}
+    sid = INBOX.coord_sid(sdir)
+    key = sid or "none"
+    rv = dict(rv0) if rv0.get("key") == key else {
+        "key": key, "day": rv0.get("day"), "count": rv0.get("count", 0), "outcome": rv0.get("outcome")}
+    if key == "none" and rv0.get("key") != key and rv0.get("started"):
+        rv["started"] = rv0["started"]  # claim --revive dropped the sidecar: same episode until t3-bind
+    if rv.get("day") != TODAY:
+        rv["day"], rv["count"] = TODAY, 0
+    allowed = INBOX.revive_allowed(sdir)
+    again = "Or start a coordinator session and run /orchestrator claim in it."
+
+    # the outcome of the last post: refused, or no claim within 30 min (once per post)
+    try:
+        with open(os.path.join(sdir, "revive-t3", "status"), encoding="utf-8") as f:
+            day, state, at = (f.readline().rstrip("\n").split("\t") + ["", "", ""])[:3]
+        at = float(at)
+    except (OSError, ValueError):
+        day, state, at = "", "", 0.0
+    if 0 < NOW - at < 86400 and rv.get("outcome") != at and (
+            state == "refused" or (state == "posted" and NOW - at >= MORNING_HOLD_S)):
+        notify(name, "🔴 The fresh coordinator did not take the seat", [
+            "Started at %s; %s." % (when(at), "its claim was refused" if state == "refused"
+                                    else "it has not claimed the seat within 30 min"),
+            "What waits for it stays saved and queued; no new start until the seat changes hands.",
+            "Open its thread in T3 to see why.", again])
+        rv["outcome"] = at
+
+    # a woken coordinator that did not move: once per session
+    for m in missed:
+        if rv.get("missed") != m:
+            notify(name, "⏳ Your answer reached the coordinator's thread, but it did not react within 15 min", [
+                "It stays saved and queued; it is not sent into that thread again.",
+                "A fresh coordinator takes over once the old one has been quiet for an hour." if allowed else
+                "Open the coordinator in T3 and send it any message: it gets the answer with its next step."])
+            rv["missed"] = m
+
+    kinds = INBOX.waiting(sdir)
+    if not kinds & {"user", "important"}:
+        rv.pop("limit_told", None)          # the next usage limit is a new episode
+    why = INBOX.fresh_needed(sdir, sid) if kinds & {"user", "important"} else None
+    # a seat held by a live session without sidecar (outside T3, or a takeover before its t3-bind):
+    # inject needs a sidecar, so a user item that waited 30 min gets one notice per seat episode
+    if not why and sid is None and "user" in kinds and not rv.get("told") and min(
+            (INBOX.num(it.get("at"), NOW) for _, it in INBOX.pending(os.path.join(sdir, "t3-inbox"), drop=False)
+             if it.get("class") == "user"), default=NOW) <= NOW - MORNING_HOLD_S \
+            and NOW - stamp_of(os.path.join(sdir, "orchestrator")) >= 600:     # not a claim minutes ago
+        notify(name, "🔴 Your answer waits: the coordinator cannot receive it", [
+            "It stays saved and queued; its session has no T3 seat binding (outside T3, or a takeover that never ran t3-bind).",
+            "Have the coordinator run /orchestrator t3-bind in T3, or start a coordinator session there and run /orchestrator claim in it."])
+        rv["told"] = True
+    if why and not (INBOX.limited(sdir) or INBOX.posted_at(sdir, "morning-t3") is not None
+                    or INBOX.posted_at(sdir, "revive-t3") is not None or (allowed and morning_first(sdir))):
+        what = "your answer" if "user" in kinds else "a worker report"
+        if not allowed:
+            # the wake path covers the rest; a seat nobody holds cannot be woken
+            if "user" in kinds and not sid and not rv.get("told"):
+                notify(name, "🔴 Your answer waits: no coordinator holds the seat", [
+                    "It stays saved and queued.",
+                    "Start a coordinator session and run /orchestrator claim in it: the answer reaches it at its first step."])
+                rv["told"] = True
+        elif rv.get("started"):         # one start per seat episode; nobody on the seat: say so once
+            if "user" in kinds and not sid and not rv.get("told"):
+                notify(name, "🔴 Your answer waits: no coordinator holds the seat", [
+                    "It stays saved and queued; the fresh coordinator started for it did not bind the seat.", again])
+                rv["told"] = True
+        elif rv["count"] >= 3:
+            if rv.get("capped") != TODAY:
+                notify(name, "🔴 No fresh coordinator: 3 were started today already", [
+                    "%s stays saved and queued (%s)." % (what[0].upper() + what[1:], why), again])
+                rv["capped"] = TODAY
+        elif DRY:
+            print("REVIVE  scope %s: morning-t3.sh --revive (%s)" % (name, why))
+        else:
+            cmd = ["bash", os.path.join(HERE, "morning-t3.sh"), "--revive"]
+            env = {k: v for k, v in os.environ.items() if k != "MM_MORNING_UNIT"}   # no unit cause file
+            try:
+                p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+                rc, out = p.returncode, (p.stdout or "") + (p.stderr or "")
+            except (OSError, subprocess.TimeoutExpired) as e:
+                rc, out = -1, e.__class__.__name__
+            try:
+                with open(os.path.join(sdir, "revive-t3", "status"), encoding="utf-8") as f:
+                    state = (f.readline().split("\t") + ["", ""])[1]
+            except OSError:
+                state = ""
+            if rc == 0 and state == "limited":
+                if not rv.get("limit_told"):
+                    notify(name, "🟡 %s is saved: a fresh coordinator starts once the usage limit is over"
+                           % (what[0].upper() + what[1:]), ["The watcher checks again every 10 min.", "Nothing to do."])
+                    rv["limit_told"] = True
+            elif rc == 0 and state == "posted":
+                rv.pop("limit_told", None)
+                rv["started"], rv["count"] = NOW, rv["count"] + 1
+                notify(name, "🟡 Starting a fresh coordinator for %s (%s)" % (what, why), [
+                    "It takes the seat, reads the board and its predecessor, then works what waits.",
+                    "The old one is not woken."])
+            else:
+                rv["started"], rv["count"] = NOW, rv["count"] + 1
+                last = ([ln for ln in out.splitlines() if ln.strip()] or ["exit %s" % rc])[-1]
+                notify(name, "🔴 A fresh coordinator could not be started for %s" % what, [
+                    "It stays saved and queued; no new start until the seat changes hands.",
+                    "To try again: bash %s --revive" % os.path.join(HERE, "morning-t3.sh"), again,
+                    "Detail: " + cut(last.replace("Detail: ", ""), 160)])
+    # ponytail: a scope where nothing ever happened keeps no revive state (no file per idle scope)
+    if rv != rv0 and (rv0 or any(v for k, v in rv.items() if k not in ("key", "day"))):
+        st["revive"] = rv
+        save(st_path, st)
 
 
 def topics_tick(names):
@@ -634,7 +826,11 @@ def main(argv):
     names = ["default"] + [s["name"] for s in ss]
     g_path = os.path.join(STATE_DIR, "global.json")
     gstate = load(g_path, {})
+    global INBOX
     try:
+        spec = importlib.util.spec_from_file_location("t3_inbox", os.path.join(HERE, "t3-inbox.py"))
+        INBOX = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(INBOX)
         report_lost(gstate)
         work = []
         for n in names:
@@ -651,14 +847,11 @@ def main(argv):
                 for n, sdir, side in work:
                     check_scope(n, sdir, side, shell, ss)
         topics_tick(names)
-        q = CFG.get("quietReports")
-        if isinstance(q, dict) and q.get("enabled") is True:     # off: not even loaded (= before 0.15.0)
-            spec = importlib.util.spec_from_file_location("t3_inbox", os.path.join(HERE, "t3-inbox.py"))
-            inbox = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(inbox)
-            for n in names:
-                sdir = scope.info(n, CFG)[0]
-                inbox.tick(n, sdir, dry=DRY, hold=morning_pending(sdir))
+        for n in names:     # with quietReports off the tick handles user items only (t3-inbox.py)
+            sdir = scope.info(n, CFG)[0]
+            missed = [] if DRY else INBOX.receipts(sdir)
+            INBOX.tick(n, sdir, dry=DRY, hold=morning_pending(sdir))
+            revive(n, sdir, missed)
         gstate.get("since", {}).pop("internal", None)    # a whole tick without an internal error
     except Exception as e:      # never a crash loop: one notify per day, then exit 0
         if gstate.setdefault("api", {}).get("internal") != TODAY:
@@ -674,5 +867,6 @@ def main(argv):
 
 
 CFG = {}
+INBOX = None        # t3-inbox.py, loaded by main()
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

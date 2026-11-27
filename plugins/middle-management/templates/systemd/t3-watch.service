@@ -3,9 +3,10 @@
 # reports, failures, and the topics tick. /middle-management-setup installs it into
 # ~/.config/systemd/user/ with the placeholders filled in (step 8); __T3WATCH_DIR__ is a COPY of the
 # scripts t3-watch.py, t3-wake.sh, t3-inbox.py, topics.py, open-items.py, peer-state.py, config-check.sh,
-# scope.py, unit-failure-alarm.sh (scripts/copy-sets.json), because the plugin cache path changes with every update.
+# scope.py, unit-failure-alarm.sh, morning-t3.sh (the revive start; scripts/copy-sets.json), because the
+# plugin cache path changes with every update.
 # Environment= is written by that step because the systemd user manager inherits no shell
-# environment: without it the watcher finds neither its config dir nor curl, jq and claude (probe).
+# environment: without it the watcher finds neither its config dir nor curl, jq, timeout and claude (probe).
 # TimeoutStartSec: one probe call may take 2 min and the topics tick 2 min per scope.
 [Unit]
 Description=middle-management: T3 Code watcher tick

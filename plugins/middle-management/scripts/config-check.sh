@@ -97,6 +97,13 @@ validate() {
           and (.allowed | type == "boolean")
           and ((.okBy // "") | type == "string")
           and (if .allowed then ((.okBy // "") | test("\\S")) else true end))
+    # 0.20.1 (README "Quiet reports", "A fresh coordinator"): the daytime takeover, the twin of the
+    # morning one: its own standing word and its own T3 webhook task.
+    and ((.reviveTaskUrlFile // "") | type == "string")
+    and ((.reviveTakeover // {"allowed": false}) | (type == "object")
+          and (.allowed | type == "boolean")
+          and ((.okBy // "") | type == "string")
+          and (if .allowed then ((.okBy // "") | test("\\S")) else true end))
     # 0.13.0 (README "Contributing and releases"): who maintains the central stock. name and at least
     # one "owner/name" repo; reviewer is a GitHub login. No unknown-key rejection anywhere in this
     # filter, so an old prReview key (0.12.x) stays harmless.

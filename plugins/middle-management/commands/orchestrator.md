@@ -1,6 +1,6 @@
 ---
 description: Claim, release, or show the coordinator seat for parallel Claude Code sessions (middle-management)
-argument-hint: "[claim [--thread <id>] [--morning]|release [<sessionId>]|status|t3-bind ...|t3-handover ...]"
+argument-hint: "[claim [--thread <id>] [--morning|--revive]|release [<sessionId>]|status|t3-bind ...|t3-handover ...]"
 allowed-tools: ["Bash", "mcp__t3-code__t3_thread_list", "mcp__t3-code__schedule_task", "mcp__t3-code__update_scheduled_task", "mcp__t3-code__delete_scheduled_task", "mcp__t3-code__t3_thread_send", "mcp__t3-code__t3_thread_launch"]
 ---
 
@@ -109,6 +109,11 @@ coordinator's thread (README, "T3 Code"). A script cannot call MCP tools, so you
    is not taken by `--morning`: the stale and expired rules above apply as for any claim. Every exit of
    `claim --morning` records its outcome (`claimed` / `refused`) for the morning trigger, and a
    refusal notifies the user: the night coordinator keeps the seat.
+   **The daytime twin** (README, "A fresh coordinator by day"): a thread the takeover task started
+   (the T3 watcher posts it when an answer or report waits and the seat is empty, wrapped, or cold
+   and large) claims with `claim --thread <currentThreadId> --revive`: the same route with its own
+   word `reviveTakeover`, its outcome in `<seat dir>/revive-t3/status` (a refusal is told by the
+   watcher), no quiet hour for a holder whose wrap closed its session, and no morning-ritual line.
 
 `status` shows thread, title, report task, an open handover and the previous holder, never the URL.
 

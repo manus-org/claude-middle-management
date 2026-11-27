@@ -9,6 +9,8 @@
 #   D  scopeMode per-root: two roots, no catch-all, a standalone session
 #   E  peer-state.py: thread column, "asleep (T3)" · F orch-heartbeat.sh skips a T3-bound coordinator
 #   G  the morning takeover: claim --morning gated by morningTakeover, quiet check, backfill, predecessor note
+#   G3 the daytime takeover: claim --revive gated by reviveTakeover, its status file, no ritual line,
+#      a wrapped holder needs no quiet hour
 #   H  coordinatorModelRule: the claim line (default, off, user rule; plain and --morning), config-check validate
 #   I  handoverTokens / handoverWarnTokens: the coordinator banner's hand-over and warn lines (fake transcripts),
 #      no line for a Keepalive prompt, config-check validate
@@ -361,6 +363,44 @@ printf '%s\n' "$U2" | as_s "$H" m2 "$H" t3-bind --thread mcp:t-m2 --title m2 --t
 is "a foreign note is not filed as previous" "$(jq -r 'has("previous")' "$SIDE")" false
 printf '{"by":"sess-m2"}\n' > "$PF"; as_s "$H" m2 "$H" release >/dev/null
 [ -e "$PF" ] && bad "release drops the note" gone present || ok "release drops the note"
+
+echo "== G3: the daytime takeover (claim --revive) =="
+rv_word() { jq '. + {reviveTakeover: {allowed: true, okBy: "Alex, 2026-11-17"}}' "$H/.claude/middle-management.json" > "$TMP/x"; cp "$TMP/x" "$H/.claude/middle-management.json"; }
+rstat() { mkdir -p "$H/.claude/state/revive-t3"; printf '%s\tposted\t%s\t1\n' "$(date +%F)" "$(date +%s)" > "$H/.claude/state/revive-t3/status"; }
+g_home "3 hours ago"
+OUT=$(as_s "$H" r1 "$H" claim --revive); has "--revive with only morningTakeover -> refused (its own word)" 'claim --revive needs the user'"'"'s standing word in the config: "reviveTakeover"' "$OUT"
+is "...marker unchanged" "$(cat "$H/.claude/state/orchestrator")" sess-c1
+g_home "3 hours ago"; rv_word; g_note; rstat
+OUT=$(as_s "$H" r1 "$H" claim --thread mcp:t-r1 --revive); ALL="$ALL$OUT"
+has "asleep + quiet + reviveTakeover -> DAYTIME TAKEOVER" "DAYTIME TAKEOVER (--revive, standing word: Alex, 2026-11-17)" "$OUT"
+has "...OK" "OK: this session" "$OUT"; is "...marker names r1" "$(cat "$H/.claude/state/orchestrator")" sess-r1
+has "...SETTLE line names the old report task" "delete_scheduled_task task-1" "$OUT"
+lacks "...without the morning-ritual step" "morning-ritual step 3" "$OUT"
+lacks "...no morning-ritual line in the claim output" "No morning ritual was delivered today" "$OUT"
+has "...backfilled, as a daytime takeover" "coordinator asleep at the daytime takeover" "$(cat "$LOG")"
+is "...status revive-t3 claimed, no morning status" "$(cut -f2 "$H/.claude/state/revive-t3/status")/$([ -e "$H/.claude/state/morning-t3/status" ] && echo morning || echo none)" "claimed/none"
+g_home "5 minutes ago"; rv_word; g_note; rstat
+OUT=$(as_s "$H" r1 "$H" claim --revive); has "holder moved 5 min ago -> refused" "REFUSED (--revive): the asleep coordinator sess-c1 moved" "$OUT"
+is "...status refused" "$(cut -f2 "$H/.claude/state/revive-t3/status")" refused
+[ -s "$H/notes" ] && bad "...no notice from the claim (the watcher sends it)" none "$(cat "$H/notes")" || ok "...no notice from the claim (the watcher sends it)"
+# wrapped 5 min ago (closed marker): --morning still waits for the hour, --revive takes it
+g_home "5 minutes ago"; rv_word; HX=abcdef12-0000-4000-8000-0000000000bb
+echo "$HX" > "$H/.claude/state/orchestrator"; jq --arg x "$HX" '.sessionId = $x' "$SIDE" > "$TMP/x"; cp "$TMP/x" "$SIDE"
+mv "$H/.claude/projects/-x/sess-c1.jsonl" "$H/.claude/projects/-x/$HX.jsonl"
+printf '## %s\n\n### %s – [c1] – day\n- Status: completed\n- Session: closed · %s\n' "$(date -d '5 minutes ago' +%F)" "$(date -d '5 minutes ago' +%H:%M)" "$HX" > "$LOG"
+OUT=$(as_s "$H" r1 "$H" claim --morning); has "wrapped 5 min ago: --morning still refuses (the hour)" "REFUSED (--morning)" "$OUT"
+OUT=$(as_s "$H" r1 "$H" claim --revive); has "...--revive takes it (its wrap closed it)" "DAYTIME TAKEOVER" "$OUT"
+has "...saying why" "its wrap closed its session" "$OUT"; lacks "...no second wrap entry" "BACKFILLED" "$OUT"
+# a takeover posted before midnight that claims after it -> claimed (the watcher reads 24 h)
+g_home "3 hours ago"; rv_word; mkdir -p "$H/.claude/state/revive-t3"
+printf '%s\tposted\t%s\t1\n' "$(date -d yesterday +%F)" "$(( $(date +%s) - 600 ))" > "$H/.claude/state/revive-t3/status"
+as_s "$H" r1 "$H" claim --revive >/dev/null; is "a revive post from yesterday, 10 min ago -> claimed" "$(cut -f2 "$H/.claude/state/revive-t3/status")" claimed
+g_home "3 hours ago"; mkdir -p "$H/.claude/state/morning-t3"; printf '%s\tposted\t%s\t1\n' "$(date -d yesterday +%F)" "$(( $(date +%s) - 600 ))" > "$H/.claude/state/morning-t3/status"
+as_s "$H" m1 "$H" claim --morning >/dev/null; is "...the morning status of yesterday stays as it was (the morning route reads today only)" "$(cut -f2 "$H/.claude/state/morning-t3/status")" posted
+# no seat holder at all: --revive just claims
+H=$(new_home); printf '{"reviveTakeover":{"allowed":true,"okBy":"Alex, 2026-11-17"}}\n' > "$H/.claude/middle-management.json"
+OUT=$(as_s "$H" r1 "$H" claim --revive); has "no holder -> --revive claims" "OK: this session" "$OUT"
+lacks "...no morning-ritual line" "No morning ritual" "$OUT"
 
 echo "== H: coordinatorModelRule =="
 H=$(new_home); CF=$H/.claude/middle-management.json

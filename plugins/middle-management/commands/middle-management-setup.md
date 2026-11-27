@@ -55,6 +55,8 @@ Schema (setup adds no other key):
   "morningTaskUrlFile": "~/.config/t3-threads/morning-task-url",
   "morningWaitUntil": "09:30",
   "morningRoot": "/abs/path/project",
+  "reviveTakeover": { "allowed": false, "okBy": "" },
+  "reviveTaskUrlFile": "~/.config/t3-threads/revive-task-url",
   "replyTimestamp": false,
   "intentCheck": false,
   "intentCheckVerbs": "",
@@ -282,6 +284,15 @@ repositories; the user names them.
     `morningTaskUrlFile` (only for another path than the default) and, with `scopes` or
     `scopeMode`, `morningRoot` = the folder of the T3 project the morning task runs in (required
     with `per-root`). Then offer step 7b instead of step 7.
+
+16c. **A fresh coordinator by day** (README, "A fresh coordinator by day"; only with T3 Code and the
+    watcher of step 8). Ask whether, when your user's answer or an important worker report waits and
+    the coordinator is gone, wrapped, or asleep for an hour with a context past `handoverWarnTokens`,
+    the watcher may start a fresh coordinator thread that takes the seat without asking, instead of
+    waking the old one. Yes means `reviveTakeover: {"allowed": true, "okBy": "<the user's name,
+    today's date>"}`, written ONLY when the user says so in this conversation (their standing word,
+    as in 16b); `reviveTaskUrlFile` only for another path than the default. With `scopes` or
+    `scopeMode`, `morningRoot` (16b) names the T3 project the takeover task runs in. Then offer step 8b.
 
 17. **Work-packages gate.** `workPackagesGate` (default `true`): a sub-agent prompt
     without a `Report file:` line is refused (README, "Sub-agents"). `false` switches the
@@ -660,6 +671,50 @@ The dry run prints what a tick would send and sends nothing. Tell the user, in p
 counts per thread and day are `t3-watch.py --stats`; the copy is refreshed at the first session
 start after a plugin update (re-run this step only when the CHANGELOG says so). Disarm with
 `systemctl --user disable --now t3-watch.timer`; never run that here unasked.
+
+## Step 8b: the takeover task for a fresh coordinator by day (optional, only with T3 Code)
+
+Needs `reviveTakeover` from step 2, item 16c, and the watcher of step 8, which starts it (its copy
+set carries `morning-t3.sh`). Without the task the watcher's start fails loudly and starts nothing.
+
+**1. The webhook task**, created by a T3 thread of the project the coordinator runs in (with scopes,
+`morningRoot`'s), as in step 7b: `schedule_task` with
+
+- `schedule`: `{"type": "webhook", "maxDeliveryAgeMinutes": 30}` (a request held longer starts
+  nothing: the watcher's own 30-min check has reported it by then);
+- `bindToCurrentThread`: `false`;
+- `title`: `Takeover coordinator`;
+- `prompt`, exactly this, with no `{{…}}` placeholder:
+
+  ```text
+  Takeover coordinator run, started by the middle-management T3 watcher: an answer of your user
+  or a worker report waits, and the coordinator seat needs a fresh coordinator. Claim the seat
+  with the daytime route (t3_thread_list for your currentThreadId, then /orchestrator claim
+  --thread <currentThreadId> --revive), create your report task and run t3-bind, then settle the
+  predecessor the claim names (delete its report task, settle its thread; never t3_thread_send
+  it). Read the board, the predecessor with the plugin's scripts/peer-state.py --session-id
+  <the session named in the claim's DAYTIME TAKEOVER line>, and scripts/open-items.py list.
+  Your user's pending answers and the waiting reports arrive as hook context after t3-bind: work
+  them. Do not run the morning ritual. Then stop and wait for your user in this thread. If the
+  claim is refused, say what it printed and wait for your user.
+  ```
+
+Store `webhookUrl` without printing it:
+
+```bash
+F="$HOME/.config/t3-threads/revive-task-url"   # or the reviveTaskUrlFile the user chose
+mkdir -p "$(dirname "$F")" && ( umask 077; cat > "$F" ) && chmod 600 "$F"   # URL on stdin
+```
+
+Then the workspace by hand, exactly as in step 7b (T3 web UI, Settings > Scheduled tasks > edit
+"Takeover coordinator" > Workspace "Use the project checkout" > save).
+
+**2. Nothing else to install**: the watcher (step 8) runs `morning-t3.sh --revive` from its own
+copy. After a plugin update that adds this, re-run step 8's copy (`copy-set.sh
+middle-management-t3watch`) or wait for the next session start. Tell the user, in plain text: a
+test opens a real takeover thread that claims the seat (`bash "$TW/morning-t3.sh" --revive`;
+offer it, run it only on their yes); `t3-watch.py --dry-run` prints `REVIVE ...` when a start is
+due; switching it off = `reviveTakeover.allowed: false`.
 
 ## Step 9 — guard canary (optional, Linux only)
 

@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 # middle-management plugin: the morning chain under T3 Code: start a FRESH, visible coordinator
-# thread every weekday morning (README "Morning coordinator in T3 Code").
+# thread every weekday morning (README "Morning coordinator in T3 Code"); with --revive the same
+# start during the day, for an answer or report that waits for a fresh coordinator.
 # Consumers: templates/systemd/orch-morning-t3.service (the trigger, started by orch-morning-t3.timer),
 #   templates/systemd/orch-morning-watchdog.service (--check, started by orch-morning-watchdog.timer),
-#   manual runs, tests/morning-t3.sh. /middle-management-setup step 7b copies it next to
-#   config-check.sh, scope.py and unit-failure-alarm.sh.
+#   scripts/t3-watch.py (--revive, its revive step), manual runs, tests/morning-t3.sh,
+#   tests/t3-watch.sh. /middle-management-setup step 7b copies it next to config-check.sh, scope.py
+#   and unit-failure-alarm.sh (copy set middle-management-morning); step 8 copies it beside
+#   t3-watch.py (copy set middle-management-t3watch).
 #   Calls config-check.sh (paths), scope.py (only with "scopes" or "scopeMode": the seat dir of
 #   morningRoot), `claude -p` (the limit probe), curl (the POST), the notifyCommand config key.
-#   Writes <seat dir>/morning-t3/status, read by scripts/t3-watch.py (a morning thread that has not
-#   claimed yet must never cause a wake of the old coordinator) and by --check. Leaves the cause file
-#   scripts/unit-failure-alarm.sh sends on failure.
+#   Writes <seat dir>/morning-t3/status, read by scripts/t3-watch.py and scripts/t3-inbox.py (a
+#   morning thread that has not claimed yet must never cause a wake of the old coordinator) and by
+#   --check; with --revive <seat dir>/revive-t3/status (read by the same two). Leaves the cause
+#   file scripts/unit-failure-alarm.sh sends on failure (with MM_MORNING_UNIT set).
 #
 # Usage: morning-t3.sh            the trigger
 #        morning-t3.sh --check    the watchdog
+#        morning-t3.sh --revive   the daytime start (README "Quiet reports", "A fresh coordinator"):
+#                                 config reviveTakeover instead of morningTakeover, reviveTaskUrlFile
+#                                 (default ~/.config/t3-threads/revive-task-url) instead of
+#                                 morningTaskUrlFile, status revive-t3/status, ONE probe and no wait:
+#                                 limited -> status "limited <epoch>", exit 0, no POST (the watcher
+#                                 retries on a later tick); no watchdog.
 #
 # Trigger, in order:
 #  1. Limit wait. Probe `claude -p ok` (no tools, no MCP, no settings). Limited (429 text, or no answer
@@ -29,7 +39,8 @@
 #   today (a coordinator claimed it), or when the trigger cancelled itself today (it already said
 #   why), or when it is still waiting (its pid is alive). Otherwise cause file + exit 1 -> the alarm.
 #
-# Env (optional): MM_MORNING_UNIT (this unit's name, for the cause file; unset = a manual run, no
+# Env (optional): T3W_NOW (epoch for the status stamp; t3-watch.py's test seam, handed on by its tick),
+#   MM_MORNING_UNIT (this unit's name, for the cause file; unset = a manual run, no
 #   cause file), MM_MORNING_WAIT_UNTIL (HH:MM, wins over the config key: a late manual run),
 #   MM_MORNING_RETRY_SEC (600), MM_MORNING_PROBE_SEC (60), MM_MORNING_MODEL (the probe's model).
 # The webhook URL is a capability into a full-access thread: it never reaches argv, stdout, stderr,
@@ -41,9 +52,11 @@ CFG_DIR="$(bash "$HERE/config-check.sh" dir)"
 CFG_FILE="$(bash "$HERE/config-check.sh" file)"
 cfg() { jq -r "$1" "$CFG_FILE" 2>/dev/null; }
 UNIT="${MM_MORNING_UNIT:-}"
+REVIVE=""; [ "${1:-}" = --revive ] && REVIVE=1
 CAUSE=""
 [ -n "$UNIT" ] && CAUSE="$CFG_DIR/state/unit-failure-alarm/$(printf '%s' "$UNIT" | tr -c 'A-Za-z0-9._-' '_').cause"
 RERUN="systemctl --user start orch-morning-t3.service"
+[ -n "$REVIVE" ] && RERUN="bash $HERE/morning-t3.sh --revive"
 LATE="MM_MORNING_WAIT_UNTIL=<HH:MM> bash $HERE/morning-t3.sh"   # a manual run with a later deadline
 TODAY="$(date +%F)"
 
@@ -53,6 +66,8 @@ fail() {  # $1 = headline (after "No morning coordinator today: "), $2 = what to
           # emoji + headline, a blank line, one fact per line, the command last, at most one Detail.
   local head="🔴 No morning coordinator today: $1" body="Nothing else changed: whoever holds the coordinator seat keeps it.
 $2"
+  [ -n "$REVIVE" ] && { head="🔴 No fresh coordinator: $1"; body="Nothing else changed: what waits for it stays queued.
+$2"; }
   [ -n "${CHECK:-}" ] && { head="🔴 $1"; body=$2; }
   local text="$head
 
@@ -84,11 +99,12 @@ if [ "$(cfg '([.scopes | arrays | .[]] | length > 0) or (.scopeMode == "per-root
             "Set morningRoot to the folder of the T3 project the morning task runs in:" "/middle-management-setup" "morningRoot \"$MR\" resolves to no seat"
 fi
 MARKER="$SDIR/orchestrator"
-STATE="$SDIR/morning-t3"
+KIND=morning; [ -n "$REVIVE" ] && KIND=revive
+STATE="$SDIR/$KIND-t3"
 STATUS="$STATE/status"
 mkdir -p "$STATE" || fail "it cannot create its state folder" "Check the folder's permissions, then start it again:" "$RERUN" "cannot create $STATE"
 # One line: date, state, epoch, pid. Read by t3-watch.py and --check; never carries the URL.
-setstatus() { printf '%s\t%s\t%s\t%s\n' "$TODAY" "$1" "$(date +%s)" "$$" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }
+setstatus() { printf '%s\t%s\t%s\t%s\n' "$TODAY" "$1" "${T3W_NOW:-$(date +%s)}" "$$" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }
 midnight() { echo $(( $(date +%s) - 10#$(date +%H) * 3600 - 10#$(date +%M) * 60 - 10#$(date +%S) )); }
 
 # --------------------------------------------------------------------------------- watchdog --
@@ -129,19 +145,23 @@ command -v curl >/dev/null || fail "it cannot find the curl command" "Add its fo
 command -v claude >/dev/null || fail "it cannot find the claude command (the limit check)" "Add its folder to Environment=PATH= in the unit, then:" "$RERUN"
 command -v timeout >/dev/null || fail "it cannot find the timeout command (coreutils)" "Add its folder to Environment=PATH= in the unit, then:" "$RERUN"
 
-UF="$(cfg '.morningTaskUrlFile // "~/.config/t3-threads/morning-task-url"')"
+TASK=morning; [ -n "$REVIVE" ] && TASK=takeover
+UF="$(cfg ".${KIND}TaskUrlFile // \"~/.config/t3-threads/$KIND-task-url\"")"
 case "$UF" in "~/"*) UF="$HOME/${UF#\~/}" ;; esac
-[ -f "$UF" ] || fail "the address of the T3 morning task is not stored" \
-  "Create the T3 webhook task and store its URL in a mode-600 file (step 7b):" "/middle-management-setup" "no webhook URL file $UF"
+[ -f "$UF" ] || fail "the address of the T3 $TASK task is not stored" \
+  "Create the T3 webhook task and store its URL in a mode-600 file (step $([ -n "$REVIVE" ] && echo 8b || echo 7b)):" "/middle-management-setup" "no webhook URL file $UF"
 case "$(stat -c %a "$UF" 2>/dev/null)" in 600|400) ;; *)
-  fail "the address of the T3 morning task is readable by others" "That address opens a thread with full access. Lock the file down, then start it again ($RERUN):" "chmod 600 $UF" ;;
+  fail "the address of the T3 $TASK task is readable by others" "That address opens a thread with full access. Lock the file down, then start it again ($RERUN):" "chmod 600 $UF" ;;
 esac
 URL="$(head -c 4096 "$UF" | tr -d '[:space:]')"
 printf '%s' "$URL" | grep -Eq '^https?://[^"\\[:space:]]+$' \
-  || fail "the stored address of the T3 morning task is no usable URL" "Store the task's webhook URL in that file, then start it again:" "$RERUN" "$UF holds no usable http(s) URL"
+  || fail "the stored address of the T3 $TASK task is no usable URL" "Store the task's webhook URL in that file, then start it again:" "$RERUN" "$UF holds no usable http(s) URL"
 
 # The standing word first: without it the thread could only be refused (and sit there all morning).
-[ "$(cfg 'if (.morningTakeover | type) == "object" and .morningTakeover.allowed == true then "yes" else "no" end')" = yes ] \
+[ -z "$REVIVE" ] || [ "$(cfg 'if (.reviveTakeover | type) == "object" and .reviveTakeover.allowed == true then "yes" else "no" end')" = yes ] \
+  || fail "the daytime takeover is not allowed in the config" "Without your standing word its thread could not take the seat, so it was not started.
+Give the word with /middle-management-setup (item 16c):" "/middle-management-setup" "reviveTakeover.allowed is not true"
+[ -n "$REVIVE" ] || [ "$(cfg 'if (.morningTakeover | type) == "object" and .morningTakeover.allowed == true then "yes" else "no" end')" = yes ] \
   || fail "the takeover is not allowed in the config" "The morning start is on, but without your standing word its thread could not take the seat, so it was not started.
 Give the word with /middle-management-setup (item 16b), or switch the morning start off:" \
           "systemctl --user disable --now orch-morning-t3.timer orch-morning-watchdog.timer" "morningTakeover.allowed is not true"
@@ -172,6 +192,11 @@ trap '[ -n "$SLEEPER" ] && kill "$SLEEPER" 2>/dev/null; setstatus cancelled; ech
 while :; do
   probe
   [ "$PROBE" = limited ] || break
+  if [ -n "$REVIVE" ]; then       # no wait loop by day: the watcher retries on a later tick
+    setstatus limited
+    echo "morning-t3 --revive: usage limit ($WHY), not started; the watcher tries again later"
+    exit 0
+  fi
   NOW="$(date +%s)"
   if [ "$NOW" -ge "$DEADLINE" ]; then
     setstatus cancelled
@@ -226,7 +251,7 @@ RELAY="${MM_MORNING_RELAY_PREFIX:-https://relay.t3.codes/v1/hooks/}"   # test se
 case $URL in
   "$RELAY"*/*/*) R=${URL#"$RELAY"}; LOCAL="${BASE%/}/api/hooks/${R#*/}" ;;
 esac
-BODY="$(jq -cn --arg d "$TODAY" '{from: "morning-t3", date: $d}')"
+BODY="$(jq -cn --arg f "$KIND-t3" --arg d "$TODAY" '{from: $f, date: $d}')"
 post() {  # $1 = url; prints "<HTTP code> <connect seconds>"; the URL is in no argv (printf is a builtin)
   curl -sS --connect-timeout 5 -m "${MM_MORNING_POST_TIMEOUT:-20}" -o /dev/null -w '%{http_code} %{time_connect}' \
     -K <(printf 'url = "%s"\n' "$1") -H 'content-type: application/json' --data-binary @- <<<"$BODY" 2>/dev/null
@@ -242,8 +267,10 @@ if [ -n "$LOCAL" ]; then
      || { [ "$CODE" != 202 ] && awk -v t="${TC:-0}" 'BEGIN { exit !(t + 0 == 0) }'; }; then LOCAL=""; fi
 fi
 [ -z "$LOCAL" ] && { read -r CODE _ <<<"$(post "$URL")"; WHERE=configured; }
-[ "$CODE" = 202 ] || fail "T3 did not start the morning thread" \
-  "Check that T3 Code runs and the morning task still exists (list_scheduled_tasks), then:" "$RERUN" \
+[ "$CODE" = 202 ] || fail "T3 did not start the $TASK thread" \
+  "Check that T3 Code runs and the $TASK task still exists (list_scheduled_tasks), then:" "$RERUN" \
   "the T3 webhook task answered HTTP ${CODE:-000} via the $WHERE URL (expected 202)"
-setstatus posted
-echo "morning-t3: morning thread started (HTTP 202)${WAITED:+ after a usage-limit wait}"
+# Fail closed: a status that still said "limited" after this 202 would make the watcher post again.
+setstatus posted || fail "it could not record the start (the $TASK thread was started)" \
+  "Check the folder's permissions:" "ls -ld $STATE" "cannot write $STATUS"
+echo "morning-t3: $TASK thread started (HTTP 202)${WAITED:+ after a usage-limit wait}"
