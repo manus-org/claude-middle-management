@@ -22,8 +22,9 @@
 #      decision by idle time AND context size (both sides of each threshold), a wrapped holder,
 #      reviveTakeover off -> wake as before, the receipt (moved -> gone, 15 min unmoved -> queued again,
 #      no further wake into that session), quietReports off, the local twin built from t3Url
-#   U5 a scope the takeover does not serve wakes as before; an open t3-handover wakes the holder; a
-#      sidecar without sessionId wakes as in 0.19.3; the head line for a user item; the 24-h drop line
+#   U5 a scope the takeover does not serve wakes as before, through its own sidecar (not the caller's
+#      directory's); an open t3-handover wakes the holder; a sidecar without sessionId wakes as in
+#      0.19.3; the head line for a user item; the 24-h drop line
 #   Z  no webhook secret anywhere
 # The clock is T3W_NOW; the coordinator's registry entry points at a sleep process (live) or is gone.
 set -uo pipefail
@@ -53,6 +54,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         b = self.rfile.read(int(self.headers.get("content-length", 0)))
         open(os.path.join(D, "hook.log"), "ab").write(b.rstrip(b"\n") + b"\n")
+        open(os.path.join(D, "path.log"), "a").write(self.path + "\n")   # which sidecar's URL was used
         code = open(os.path.join(D, "hook.code")).read().strip()
         if code == "sleep":
             time.sleep(2); code = "202"
@@ -87,7 +89,7 @@ items() { find "$IN" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l | tr -d ' ';
 texts() { cat "$IN"/*.json 2>/dev/null | jq -r .text; }
 nhook() { [ -f "$TMP/hook.log" ] && wc -l < "$TMP/hook.log" | tr -d ' ' || echo 0; }
 prompt() { tail -1 "$TMP/hook.log" 2>/dev/null | jq -r .prompt; }
-reset() { rm -rf "$IN" "$TMP/hook.log" "$ST/t3-report" "$ST/t3-inbox.tick"; echo 202 > "$TMP/hook.code"; }
+reset() { rm -rf "$IN" "$TMP/hook.log" "$TMP/path.log" "$ST/t3-report" "$ST/t3-inbox.tick"; echo 202 > "$TMP/hook.code"; }
 
 # ------------------------------------------------------------------------------------------ A --
 echo "A. config shape"
@@ -477,11 +479,16 @@ mv -f "$TMP/side.bak" "$ST/orchestrator.t3.json"; cfgj '{"quietReports":{"enable
 
 echo "U5. review round 1: other scopes, an open handover, no sessionId, the head line, the 24-h drop"
 cfgj "{\"quietReports\":{\"enabled\":true},$REV,\"scopes\":[{\"name\":\"ff\",\"root\":\"$TMP/ffroot\",\"board\":\"$TMP/ff.md\"}]}"
-reset; coord asleep; fresh 0; ctx 400000 -7200; mkdir -p "$ST/scopes/ff"; cp "$ST/orchestrator.t3.json" "$ST/scopes/ff/"
+reset; coord asleep; fresh 0; ctx 400000 -7200; mkdir -p "$ST/scopes/ff"
+# scope ff's sidecar has its own URL (same holder), so the stub's path log tells which sidecar a wake used
+jq --arg u "http://127.0.0.1:$PORT/api/hooks/task-ff/$SECRET" '.reportUrl = $u' "$ST/orchestrator.t3.json" > "$ST/scopes/ff/orchestrator.t3.json"; chmod 600 "$ST/scopes/ff/orchestrator.t3.json"
 printf 'scope ff answer' > "$TMP/u.txt"
 env_ T3W_NOW=$((T0 + 10)) MM_SESSION_ID="" MM_SCOPE_CWD="$TMP" python3 "$IB" deliver "$ST/scopes/ff" user workbench-alex "$TMP/u.txt" 2>>"$TMP/stderr.log"
 is "revive on, a scope the takeover task does not serve (not morningRoot's), cold and large -> wake as with revive off" "$?/$(nhook)" "0/1"
+is "...through scope ff's own sidecar, not the one of the caller's directory (MM_SCOPE_CWD names the default scope)" "$(tail -1 "$TMP/path.log")" "/api/hooks/task-ff/$SECRET"
+is "...and ff's item is the one woken (a receipt there, none in the default inbox)" "$(find "$ST/scopes/ff/t3-inbox" -name '*.receipt' | wc -l | tr -d ' ')/$(items)/$(receipts)" "1/0/0"
 is "...the served (default) scope with the same holder -> held" "$(du 200 "default scope")" "9|t3-inbox: queued: a fresh coordinator is needed"
+is "...a worker's report into scope ff goes through ff's sidecar too" "$(cd / && env_ T3W_NOW=$((T0 + 400)) MM_SESSION_ID=sid-w1 python3 "$IB" deliver "$ST/scopes/ff" important w1 "$TMP/u.txt" 2>>"$TMP/stderr.log"; echo $?)/$(tail -1 "$TMP/path.log")" "0//api/hooks/task-ff/$SECRET"
 rm -rf "$ST/scopes"; cfgj "{\"quietReports\":{\"enabled\":true},$REV}"
 reset; coord asleep; fresh 0; ctx 400000 -7200; cp "$ST/orchestrator.t3.json" "$TMP/side.bak"
 jq '.handover = {toThreadId: "mcp:next", toTitle: "Next", since: 1}' "$TMP/side.bak" > "$ST/orchestrator.t3.json"; chmod 600 "$ST/orchestrator.t3.json"

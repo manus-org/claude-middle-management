@@ -42,6 +42,9 @@ top-level threads of the scope's T3 project(s), the coordinator thread included:
                  after the post, and the sidecar is older than that post, the sidecar still names the
                  night coordinator, which is about to lose the seat: nothing wakes it. "limit over" and
                  "other failure" go to the user as a notify instead, the Keepalive retry is skipped.
+                 The same hold off <seat dir>/revive-t3/status "posted" (morning-t3.sh --revive, until
+                 claim --revive; told by the post's age, not its date, so also across midnight): while
+                 the fresh coordinator by day has not taken the seat, the old one is not woken either.
   answer held    a user item (t3-inbox.py class user) waits while the coordinator is limited ->
                  notify once per limit episode: saved, it comes after the reset time
 Plus: topics.py tick --scope <name> for every scope when topics.py exists (with or without sidecar),
@@ -363,16 +366,31 @@ def morning_pending(sdir):
     return INBOX.morning_pending(sdir)
 
 
+def revive_pending(sdir):
+    """The daytime twin: a fresh coordinator was started (revive(), morning-t3.sh --revive; status
+    "posted" < 30 min, whatever its date) and has not bound the seat yet (the sidecar predates the
+    post, so it still names the old holder); nothing wakes the old holder meanwhile. Otherwise the
+    wake re-pays the cold context the takeover exists to avoid, and a holder that moved minutes ago
+    makes the following claim --revive refuse (orchestrator.sh: "moved ... ago")."""
+    return INBOX.morning_pending(sdir, "revive-t3")
+
+
 def check_scope(name, sdir, side, shell, ss):
     st_path = os.path.join(STATE_DIR, name + ".json")
     st = load(st_path, {})
     coord_id = side.get("threadId") if isinstance(side.get("threadId"), str) else ""
     threads, coord = threads_of(shell, name, ss, coord_id)
     is_coord = lambda t: coord is not None and t["id"] == coord["id"]  # noqa: E731
-    pending = morning_pending(sdir)
     old = '"%s"' % cut(side["title"]) if side.get("title") else ""      # the seat holder the sidecar names
-    held = "The night coordinator%s is not woken: this morning's coordinator has not taken the seat yet." % (
-        " " + old if old else "")
+    # the hold: the seat is about to change hands, so nothing below wakes the holder the sidecar names
+    pending = morning_pending(sdir)
+    if pending:
+        held = "The night coordinator%s is not woken: this morning's coordinator has not taken the seat yet." % (
+            " " + old if old else "")
+    else:
+        pending = revive_pending(sdir)
+        held = "The old coordinator%s is not woken: a fresh coordinator was started and has not taken the seat yet." % (
+            " " + old if old else "")
     live = lambda t: t.get("activityRunStatus") == "running"           # noqa: E731
 
     # no coordinator: the seat names a thread that is gone, settled or archived

@@ -32,7 +32,12 @@ retry until the seat changes hands. The thread claims with `orchestrator.sh clai
 `--morning` route with its own word `reviveTakeover` and status file, no morning-ritual line; a
 holder whose wrap closed its session needs no quiet hour). `hooks/t3-report.sh` holds its turns
 like the morning thread's: none goes into the old coordinator before the claim, none from a refused
-takeover thread for 24 h. Setup: item 16c and step 8b (the
+takeover thread for 24 h; the watcher holds its own wakes the same way while the post is under 30
+min old and the sidecar still names the old holder ("limit over", `Keepalive` and "other failure"
+go to you as a notify instead). Both holds are told by the post's age, not its date, so a takeover
+posted shortly before midnight is still held after it. `t3-inbox.py deliver` wakes through the
+given marker dir's scope (`MM_SCOPE` for `t3-wake.sh`), never through the caller's directory's.
+Setup: item 16c and step 8b (the
 "Takeover coordinator" webhook task and its exact prompt). `config-check.sh` validates
 `reviveTakeover` and `reviveTaskUrlFile`; the watcher's copy set now carries `morning-t3.sh` (it
 is refreshed at the next session start).

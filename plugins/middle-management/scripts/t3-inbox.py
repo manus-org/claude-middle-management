@@ -14,7 +14,8 @@ Consumers: hooks/t3-report.sh (`deliver` at a worker's turn end, `inject` at the
   sidecar, never its reportUrl.
 
 Usage: t3-inbox.py deliver <marker dir> <important|status|user> <from> <file with the text>
-         env MM_SESSION_ID = the worker's session ("" for user), MM_SCOPE_CWD (handed on to t3-wake.sh)
+         env MM_SESSION_ID = the worker's session ("" for user). The wake goes through <marker dir>'s
+         own scope (MM_SCOPE for t3-wake.sh, derived from the dir), never the caller's cwd
          important|status: exit 0 queued or delivered · 3 no sidecar · 4 not delivered: the caller's
          own report was taken back out of the inbox, the caller tells its session to send it itself
          user (a sender that is no session, the text is the user's own answer): exit 0 delivered (a
@@ -288,6 +289,13 @@ def pack(items, cap, head, tail):
     return taken, "\n".join(body)
 
 
+def scope_name(sdir):
+    """The scope whose seat dir sdir is: "default" for <cfg>/state, else the dir's own name
+    (scope.py info: a named or auto scope lives in <cfg>/state/scopes/<name>)."""
+    sdir = os.path.normpath(sdir)
+    return "default" if os.path.realpath(sdir) == os.path.realpath(STATE) else os.path.basename(sdir)
+
+
 def limit_until(sdir):
     """The reset epoch (0 = unknown) while t3-watch.py's usage-limit episode of this scope names the
     coordinator's thread (<cfg>/state/t3-watch/<scope>.json: the sidecar's threadId is a key of
@@ -296,7 +304,7 @@ def limit_until(sdir):
     open: a missing or unreadable file, one the watcher has not checked for 30 min (T3 API down,
     watcher stopped), a thread whose reset time (limit.resets, T3's usageLimitResetAt) has passed,
     or a sidecar without threadId reads None, and the wake goes out as before."""
-    name = "default" if os.path.realpath(sdir) == os.path.realpath(STATE) else os.path.basename(sdir)
+    name = scope_name(sdir)
     try:
         with open(os.path.join(STATE, "t3-watch", name + ".json"), encoding="utf-8") as f:
             st = json.load(f)
@@ -338,25 +346,29 @@ def revive_allowed(sdir):
 
 
 def posted_at(sdir, kind):
-    """The epoch of today's post of morning-t3.sh (kind "morning-t3" or, with --revive, "revive-t3")
+    """The epoch of the last post of morning-t3.sh (kind "morning-t3" or, with --revive, "revive-t3")
     while its status still says "posted" (the claim turns it into claimed/refused) and the post is
-    under 30 min old; else None."""
+    under 30 min old; else None. A morning post must be today's; a revive post is told by its age
+    alone, its date may be yesterday's (hooks/t3-report.sh and t3-watch.py's revive outcome read the
+    revive status for 24 h the same way)."""
     try:
         with open(os.path.join(sdir, kind, "status"), encoding="utf-8") as f:
             day, state, at = (f.readline().rstrip("\n").split("\t") + ["", "", ""])[:3]
         at = float(at)
     except (OSError, ValueError):
         return None
-    return at if day == TODAY and state == "posted" and NOW - at < POSTED_S else None
+    return at if (day == TODAY or kind == "revive-t3") and state == "posted" and NOW - at < POSTED_S else None
 
 
-def morning_pending(sdir):
+def morning_pending(sdir, kind="morning-t3"):
     """True while today's morning thread was started (morning-t3.sh status "posted"; claim --morning
     turns it into "claimed" or "refused"), the post is under 30 min old, and the seat is not bound
     anew yet (the sidecar is older than the post). The sidecar then still names the night
     coordinator, and a wake would make it re-pay its whole context for a seat it is about to lose.
+    kind "revive-t3": the same for the daytime takeover (morning-t3.sh --revive, claim --revive) and
+    the old coordinator it replaces (t3-watch.py revive_pending).
     ponytail: the window is told by time, not by thread id: any wake in it goes to the user instead."""
-    at = posted_at(sdir, "morning-t3")
+    at = posted_at(sdir, kind)
     try:
         return at is not None and os.path.getmtime(os.path.join(sdir, "orchestrator.t3.json")) < at
     except OSError:
@@ -649,12 +661,16 @@ def deliver(sdir, cls, from_, path):
         except (OSError, subprocess.TimeoutExpired):
             return 4
     ilog("queued", own[1], it["class"])
+    # the wake goes through THIS seat's sidecar: t3-wake.sh takes the scope by name (MM_SCOPE wins
+    # over MM_SCOPE_CWD and the cwd), so a channel running from another directory cannot post one
+    # scope's item through another scope's coordinator
+    env = {"MM_SCOPE": scope_name(sdir)}
     if not user:
-        return run(inbox, sid, from_, {}, own=own, start=start)[0]
+        return run(inbox, sid, from_, env, own=own, start=start)[0]
     if sid is None:
         rc, q = 0, FRESH
     else:
-        rc, q = run(inbox, sid, from_, {}, own=own, hold=morning_pending(sdir), start=start)
+        rc, q = run(inbox, sid, from_, env, own=own, hold=morning_pending(sdir), start=start)
     if rc == 0 and not q:
         return 0
     try:

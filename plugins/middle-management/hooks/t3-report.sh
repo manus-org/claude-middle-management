@@ -69,9 +69,11 @@ fi
 # its turns are not lost silently, and they never wake the night coordinator. Everyone else reports.
 # The daytime takeover (README "A fresh coordinator by day") is held the same way off
 # <seat dir>/revive-t3/status (morning-t3.sh --revive, claim --revive), so its thread does not wake
-# the old coordinator either; t3-watch.py tells the user of the refusal or of no claim in 30 min. A
-# refused takeover thread stays held 24 h from the refusal, not for the day: its post may predate
-# midnight (the status keeps the post's date), and t3-watch.py reads that outcome for 24 h too.
+# the old coordinator either; t3-watch.py tells the user of the refusal or of no claim in 30 min.
+# Both revive holds are told by the stamp's age, not by its date (RNOW below): the post may predate
+# midnight (the status keeps the post's date), so a posted takeover thread stays held through
+# midnight (at most 30 min) and a refused one 24 h from the refusal, not for the day; t3-watch.py
+# reads that outcome for 24 h too.
 for K in morning revive; do
   MST="$SDIR/$K-t3/status"
   [ -f "$MST" ] || continue
@@ -91,7 +93,7 @@ for K in morning revive; do
     printf '{"systemMessage":"middle-management: your claim --%s was refused, so your turns are NOT sent to the %s (%s). Wait for your user in this thread."}\n' "$K" "$OLD" "$TOLD"
     exit 0
   fi
-  if [ -n "$MAT" ] && [ "$MD" = "$(date +%F)" ] && [ "$MS" = posted ] && [ $(( $(date +%s) - MAT )) -lt 1800 ] \
+  if [ -n "$MAT" ] && [ -n "$RNOW" ] && [ "$MS" = posted ] && [ $(( $(date +%s) - MAT )) -lt 1800 ] \
      && [ "$(stat -c %Y "$SIDE" 2>/dev/null || echo 0)" -lt "$MAT" ]; then
     SAT=$(cat "$CFG_DIR"/sessions/*.json 2>/dev/null \
       | jq -r --arg id "$SID" 'select(.sessionId == $id) | .startedAt | numbers' 2>/dev/null | head -1)

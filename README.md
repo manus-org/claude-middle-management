@@ -578,7 +578,8 @@ changes the worker side of the Stop hook; everything else stays as above.
 - **Your user's own answers (0.19.4, class `user`).** A channel that carries your user's answer to
   the coordinator (a decision page, a phone poller; a sender that is no session) calls
   `MM_SESSION_ID="" t3-inbox.py deliver <marker dir> user <from> <file>`, with or without
-  `quietReports`. The item is always written first, also when no sidecar exists, and never handed
+  `quietReports`; the wake goes through that marker dir's own sidecar, whatever directory the
+  channel runs from. The item is always written first, also when no sidecar exists, and never handed
   back. It wakes at once (no debounce, no fallback wait) unless the coordinator is busy (its hooks
   hand it in) or a wake is under way. Exit 0 = delivered (202, under way, or busy); 9 = queued, the
   watcher acts on it, the last stderr line says why, exactly `t3-inbox: queued: <reason>` with
@@ -637,10 +638,13 @@ coordinator, nobody is woken: the watcher starts one, the way the morning chain 
   quiet hour; it prints no morning-ritual line. The thread's prompt (setup step 8b): claim, report
   task, `t3-bind`, settle the predecessor, read the board and the predecessor, `open-items.py list`,
   then work what waits (it arrives as hook context after `t3-bind`), and stop. No morning ritual.
-  The Stop hook holds it like the morning thread (step 4 there, off `revive-t3/status`): no turn
-  of a session started after the post goes into the old coordinator before the claim (at most 30
-  min; its `failures.log` line reaches you), and the refused takeover thread itself stays held for
-  24 h from the refusal, so it never wakes the old one.
+  The Stop hook and the watcher hold it like the morning thread (step 4 there, off
+  `revive-t3/status`, told by the post's age rather than its date, so also across midnight): no
+  turn of a session started after the post goes into the old coordinator before the claim (at most
+  30 min; its `failures.log` line reaches you), the watcher's "limit over", `Keepalive` and "other
+  failure" wakes go to you as a notify instead while the sidecar still names the old holder, and
+  the refused takeover thread itself stays held for 24 h from the refusal, so it never wakes the old
+  one.
 - **Loud, never a loop.** A failed start, a refused claim, or no claim within 30 min of the post:
   one red notice with the command to try again, no new start until the seat changes hands.
 - **Switching it on.** Only once every coordinator runs 0.15.0: a process started before the
@@ -711,7 +715,9 @@ messaged: waking it would make it re-pay its whole context for a seat it is abou
    session is told once.
    A refused claim notifies you through `notifyCommand` and ends the hold for every other session;
    the refused morning thread itself stays held for the day (it is named in the status line), so a
-   refusal never wakes the night coordinator.
+   refusal never wakes the night coordinator. The daytime takeover
+   ([A fresh coordinator by day](#a-fresh-coordinator-by-day)) has the same two holds off
+   `revive-t3/status`, told by the post's age rather than its date.
 5. **Watchdog** (`morning-t3.sh --check`, `orch-morning-watchdog.timer`, weekdays 08:15 by
    default). Quiet when today the seat marker was written (a coordinator claimed it) AND the ritual
    window was stamped (`<seat dir>/morning-ritual/window`, ritual step 7), or when the trigger

@@ -10,7 +10,8 @@
 #   D  usage limit, coordinator too: Keepalive retry, "limit over" after the Keepalive went through
 #   E  click pending >10 min · F stuck run >3 h · G other failure once per run id
 #   H  report lost · I T3 API problems, I2 T3 URL (t3Url, loopback default) · J no coordinator · K dry-run · L topics.py hook · M handover
-#   N  morning takeover pending: no wake into the night coordinator, notify instead
+#   N  morning takeover pending: no wake into the night coordinator, notify instead; the daytime
+#      takeover's post (revive-t3/status) holds the same way, also across midnight
 #   O  quiet reports: the inbox tick (fallback, never for status, debounce, dry-run, morning hold,
 #      T3 API down, one failures line per episode, 24-h drop, held while the coordinator is
 #      usage-limited and one digest when the limit is over)
@@ -462,6 +463,30 @@ reset; sidecar mcp:coord; morning; echo ok > "$TMP/probe.mode"
 shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
 tick 2400; tick 4200; is "posted 40+ min ago and never claimed: the hold has ended" "$(nhook)" 1
 rm -rf "$CFG/state/morning-t3"; sidecar mcp:coord
+# the daytime takeover (revive-t3/status, README "A fresh coordinator by day"): the same hold, its own words
+revived() {  # $1 = the status date; posted at T0+1500 s like morning(), the sidecar predates the post
+  mkdir -p "$CFG/state/revive-t3"; printf '%s\tposted\t%s\t1\n' "$1" "$((T0 + 1500))" > "$CFG/state/revive-t3/status"; touch -d "@$((T0 - 3600))" "$SIDE"; }
+reset; sidecar mcp:coord; revived "$(date -d "@$T0" +%F)"; echo ok > "$TMP/probe.mode"
+shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
+tick 0; tick 1800; is "a fresh coordinator posted, not claimed: the probe passes -> no wake into the old coordinator" "$(nprobe)/$(nhook)" "1/0"
+has "...the user gets limit over instead" "⏳ Limit over: restart 1 paused session yourself" "$(notes)"
+has "...saying the old coordinator is not woken" "The old coordinator \"Koordinator\" is not woken: a fresh coordinator was started and has not taken the seat yet." "$(notes)"
+reset; sidecar mcp:coord; revived "$(date -d "@$T0" +%F)"
+shell "[{\"id\":\"mcp:coord\",\"title\":\"Koordinator\",$LIMITED}]"
+tick 0; tick 1800; is "limited old coordinator: no Keepalive while the takeover claim is pending" "$(nhook)" 0
+reset; sidecar mcp:coord; revived "$(date -d "@$T0" +%F)"
+shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",\"status\":\"failed\",\"lastErrorClass\":\"provider_error\",\"lastError\":\"boom\"}]"
+tick 0; is "other failure: no wake" "$(nhook)" 0; has "...notify instead" "🔴 A session stopped with an error: lane one" "$(notes)"
+reset; sidecar mcp:coord; revived "$(date -d "@$((T0 - 86400))" +%F)"; echo ok > "$TMP/probe.mode"
+shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
+tick 0; tick 1800; is "a post from before midnight (yesterday's date), 5 min old -> still held" "$(nhook)" 0
+reset; sidecar mcp:coord; revived "$(date -d "@$T0" +%F)"; touch -d "@$((T0 + 3600))" "$SIDE"; echo ok > "$TMP/probe.mode"
+shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
+tick 0; tick 1800; is "the sidecar is newer than the post (the takeover bound): wakes as before" "$(nhook)" 1
+reset; sidecar mcp:coord; revived "$(date -d "@$T0" +%F)"; sed -i "s/\tposted\t/\tclaimed\t/" "$CFG/state/revive-t3/status"; echo ok > "$TMP/probe.mode"
+shell "[$COORD_OK, {\"id\":\"mcp:w1\",\"title\":\"lane one\",$LIMITED}]"
+tick 0; tick 1800; is "the takeover claimed: wakes as before" "$(nhook)" 1
+rm -rf "$CFG/state/revive-t3"; sidecar mcp:coord
 
 # ------------------------------------------------------------------------------------------ O --
 echo "O. quiet reports: the inbox tick (t3-inbox.py, imported)"

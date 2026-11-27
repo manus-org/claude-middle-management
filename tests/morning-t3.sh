@@ -11,7 +11,8 @@
 #   B  watchdog: missing claim / ritual -> alarm, both today -> quiet, cancelled / waiting -> quiet
 #   C  unit-failure-alarm: notifyFallbackCommand when notifyCommand fails or is missing
 #   D  t3-report.sh: the morning thread's turn is not sent to the night coordinator before its claim,
-#      nor the daytime takeover thread's to the old one (revive-t3/status), nor a refused one's
+#      nor the daytime takeover thread's to the old one (revive-t3/status, its post before midnight
+#      too), nor a refused one's
 #   E  templates   F  config shape   G  --revive: own word and URL file, one probe and no wait (limited ->
 #      status limited, exit 0, no POST), failures   Z  no webhook secret in any output
 set -uo pipefail
@@ -265,6 +266,10 @@ OUT=$(told sess-m); [ -e "$TMP/hook.log" ] && bad "revive: the takeover thread b
 has "...the session is told" "the takeover thread has not claimed the seat yet (it would wake the old coordinator)" "$OUT"
 has "...one failures.log line, short enough for the watcher to show whole" "held: the takeover thread has not claimed the seat yet (at most 30 min)" "$(cat "$CD/state/t3-report/failures.log" 2>/dev/null)"
 stop sess-w; has "...a worker started before the post still reports" "REFUSED: something" "$(cat "$TMP/hook.log" 2>/dev/null)"
+# the post's date is yesterday's, the post itself 10 min old: a turn after midnight is still held (the morning hold is for the day, this one for 30 min)
+printf '%s\tposted\t%s\t1\n' "$(date -d yesterday +%F)" "$((NOWS - 600))" > "$CD/state/revive-t3/status"; rm -f "$CD/state/t3-report/"sess-*
+OUT=$(told sess-m); [ -e "$TMP/hook.log" ] && bad "revive: a post from before midnight, 10 min old -> the takeover thread is still held" none "$(cat "$TMP/hook.log")" || ok "revive: a post from before midnight, 10 min old -> the takeover thread is still held"
+has "...the session is told" "the takeover thread has not claimed the seat yet (it would wake the old coordinator)" "$OUT"
 printf '%s\trefused\t%s\t1\tsess-m\n' "$(date -d yesterday +%F)" "$((NOWS - 600))" > "$CD/state/revive-t3/status"; rm -f "$CD/state/t3-report/"sess-*
 OUT=$(told sess-m); [ -e "$TMP/hook.log" ] && bad "revive: the refused takeover thread stays held, its post from before midnight too" none "$(cat "$TMP/hook.log")" || ok "revive: the refused takeover thread stays held, its post from before midnight too"
 has "...the session is told" "your claim --revive was refused, so your turns are NOT sent to the old coordinator" "$OUT"
